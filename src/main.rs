@@ -1,10 +1,7 @@
 mod board;
 mod defs;
-mod eval;
-mod move_gen;
-mod uci;
-mod zobrist;
+mod movegen;
 
 fn main() {
-    println!("Hello, world!");
+    // let mut bitboard: u64 = 0b0000000000000000000000000000000000000000000000000000000000000000;
 }
