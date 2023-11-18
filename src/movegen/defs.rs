@@ -7,7 +7,10 @@ pub const NOT_AB_FILE: u64 = 18229723555195321596;
 pub const NOT_HG_FILE: u64 = 4557430888798830399;
 
 pub const MAX_COLUMNS: usize = 8;
+pub const MAX_ROWS: usize = 8;
 pub const BOARD_SIZE: usize = 64;
+
+pub use super::magics::Magic;
 
 // bishop relevant occupancy bit count for every square on board
 const BISHOP_RELEVANT_BITS: [u8; 64] = [
@@ -105,22 +108,6 @@ pub fn pop_bit(bitboard: &mut u64, square: usize) {
     if get_bit(&bitboard, square) != 0 {
         *bitboard &= !(1u64 << square)
     }
-}
-pub fn count_bits(mut bitboard: u64) -> usize {
-    // bit counter
-    let mut count = 0;
-
-    // consecutively reset least significant 1st bit
-    while bitboard != 0 {
-        // increment count
-        count += 1;
-
-        // reset least significant 1st bit
-        bitboard &= bitboard - 1;
-    }
-
-    // return bit count
-    count
 }
 
 pub fn get_least_significant_1st_bit(bitboard: &u64) -> usize {

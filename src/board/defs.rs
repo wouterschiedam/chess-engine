@@ -2,7 +2,7 @@ use crate::defs::{Bitboard, NrOf, Piece, Square};
 use std::ops::RangeInclusive;
 
 // Exports
-pub use super::zobrist::{ZobristKey, ZobristRandoms};
+// pub use super::zobrist::{ZobristKey, ZobristRandoms};
 
 #[rustfmt::skip]
 pub const SQUARE_NAME: [&str; NrOf::SQUARES] = [
@@ -136,3 +136,16 @@ pub const BB_SQUARES: TBBSquares = init_bb_squares();
 
 // Piece location: (file, rank)
 pub type Location = (u8, u8);
+
+// This enum holds the direction in which a ray of a slider piece can point.
+#[derive(Copy, Clone)]
+pub enum Direction {
+    Up,
+    Right,
+    Down,
+    Left,
+    UpLeft,
+    UpRight,
+    DownRight,
+    DownLeft,
+}
