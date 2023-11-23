@@ -10,8 +10,11 @@ pub const MAX_COLUMNS: usize = 8;
 pub const MAX_ROWS: usize = 8;
 pub const BOARD_SIZE: usize = 64;
 
-pub use super::magics::Magic;
-
+pub use super::{magics::Magic, movelist::MoveList};
+use crate::{
+    board::defs::SQUARE_NAME,
+    defs::{Castling, Piece, Square},
+};
 // bishop relevant occupancy bit count for every square on board
 const BISHOP_RELEVANT_BITS: [u8; 64] = [
     6, 5, 5, 5, 5, 5, 5, 6, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 7, 7, 7, 7, 5, 5, 5, 5, 7, 9, 9, 7, 5, 5,
@@ -25,6 +28,24 @@ const ROOK_RELEVANT_BITS: [u8; 64] = [
     11, 10, 10, 10, 10, 10, 10, 11, 12, 11, 11, 11, 11, 11, 11, 12,
 ];
 
+pub struct Shift;
+impl Shift {
+    pub const PIECE: usize = 0;
+    pub const FROM_SQ: usize = 3;
+    pub const TO_SQ: usize = 9;
+    pub const CAPTURE: usize = 15;
+    pub const PROMOTION: usize = 18;
+    pub const EN_PASSANT: usize = 21;
+    pub const DOUBLE_STEP: usize = 22;
+    pub const CASTLING: usize = 23;
+    pub const SORTSCORE: usize = 24;
+}
+#[derive(Copy, Clone, PartialEq)]
+pub enum MoveType {
+    Quiet,
+    Capture,
+    All,
+}
 #[derive(Copy, Clone, PartialEq, Debug)]
 pub enum Side {
     White,
@@ -38,6 +59,47 @@ impl From<usize> for Side {
             1 => Side::Black,
             _ => panic!("Invalid side index"),
         }
+    }
+}
+#[derive(Clone, Copy, Debug)]
+pub struct Move {
+    pub data: usize,
+}
+
+impl Move {
+    pub fn new(data: usize) -> Self {
+        Self { data }
+    }
+    pub fn from(&self) -> Square {
+        // 0x3F is binary number 0b00111111
+        ((self.data >> Shift::FROM_SQ as u64) & 0x3F) as Square
+    }
+
+    pub fn to(&self) -> Square {
+        // 0x3F is binary number 0b00111111
+        ((self.data >> Shift::TO_SQ as u64) & 0x3F) as Square
+    }
+    pub fn promoted(&self) -> Piece {
+        // 0x7 is binary number 111
+        ((self.data >> Shift::PROMOTION as u64) & 0x7) as Piece
+    }
+    pub fn piece(&self) -> Piece {
+        // 0x7 is binary number 111
+        ((self.data >> Shift::PIECE as u64) & 0x7) as Piece
+    }
+    pub fn captured(&self) -> Piece {
+        // 0x7 is binary number 111
+        ((self.data >> Shift::CAPTURE as u64) & 0x7) as Piece
+    }
+    pub fn castling(&self) -> bool {
+        // 0x1 is least_significant bit
+        ((self.data >> Shift::CASTLING as u64) & 0x1) as u8 == 1
+    }
+    pub fn double_push(&self) -> bool {
+        ((self.data >> Shift::DOUBLE_STEP as u64) & 0x1) as u8 == 1
+    }
+    pub fn en_passant(&self) -> bool {
+        ((self.data >> Shift::EN_PASSANT as u64) & 0x1) as u8 == 1
     }
 }
 
@@ -77,7 +139,24 @@ pub fn print_bitboard(bitboard: u64) -> () {
     println!("     Bitboard: {:?}\n\n", bitboard);
 }
 
-pub fn algebraic_from_str(square: &str) -> usize {
+pub fn castling_as_string(permissions: u8) -> String {
+    let mut castling_as_string: String = String::from("");
+    let p = permissions;
+
+    castling_as_string += if p & Castling::WK > 0 { "K" } else { "" };
+    castling_as_string += if p & Castling::WQ > 0 { "Q" } else { "" };
+    castling_as_string += if p & Castling::BK > 0 { "k" } else { "" };
+    castling_as_string += if p & Castling::BQ > 0 { "q" } else { "" };
+
+    if castling_as_string.is_empty() {
+        castling_as_string = String::from("-");
+    }
+
+    castling_as_string
+}
+
+// Convert square names to numbers.
+pub fn algebraic_from_str(square: &str) -> Option<usize> {
     if square.len() != 2 {
         // Invalid algebraic notation
         panic!()
@@ -93,7 +172,7 @@ pub fn algebraic_from_str(square: &str) -> usize {
     // Calculate the index in the 1D bitboard representation
     let square_index = row * 8 + column;
 
-    square_index
+    Some(square_index)
 }
 
 pub fn get_bit(bitboard: &u64, square: usize) -> u64 {

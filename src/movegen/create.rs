@@ -1,4 +1,4 @@
-use super::MoveGenerator;
+use super::{defs::print_bitboard, MoveGenerator};
 use crate::{
     board::{
         defs::{Direction, Files, Location, Ranks, BB_FILES, BB_RANKS, BB_SQUARES},
@@ -12,50 +12,33 @@ pub type AttackBoard = Vec<Bitboard>;
 
 impl MoveGenerator {
     pub fn bishop_mask(square: usize) -> Bitboard {
-        let mut attacks: Bitboard = 0;
+        let location = Board::square_on_file_rank(square);
+        let bb_edges = MoveGenerator::edges_without_piece(location);
+        let bb_up_left = MoveGenerator::bb_ray(0, square, Direction::UpLeft);
+        let bb_up_right = MoveGenerator::bb_ray(0, square, Direction::UpRight);
+        let bb_down_right = MoveGenerator::bb_ray(0, square, Direction::DownRight);
+        let bb_down_left = MoveGenerator::bb_ray(0, square, Direction::DownLeft);
 
-        // init target rank & files
-        let (tr, tf) = Board::square_on_file_rank(square);
+        (bb_up_left | bb_up_right | bb_down_right | bb_down_left) & !bb_edges
+    }
 
-        // mask relevant bishop occupancy bits
-        for i in 1..8 {
-            if tr + i <= 6 && tf + i <= 6 {
-                attacks |= 1u64 << ((tr + i) * 8 + tf + i);
-            }
-            if tr as isize - i as isize >= 1 && tf + i <= 6 {
-                attacks |= 1u64 << ((tr - i) * 8 + tf + i);
-            }
-            if tr + i <= 6 && tf as isize - i as isize >= 1 {
-                attacks |= 1u64 << ((tr + i) * 8 + tf - i);
-            }
-            if tr as isize - i as isize >= 1 && tf as isize - i as isize >= 1 {
-                attacks |= 1u64 << ((tr - i) * 8 + tf - i);
-            }
-        }
-        attacks
+    fn edges_without_piece(location: Location) -> Bitboard {
+        let bb_piece_file = BB_FILES[location.0 as usize];
+        let bb_piece_rank = BB_RANKS[location.1 as usize];
+
+        (BB_FILES[Files::A] & !bb_piece_file)
+            | (BB_FILES[Files::H] & !bb_piece_file)
+            | (BB_RANKS[Ranks::R1] & !bb_piece_rank)
+            | (BB_RANKS[Ranks::R8] & !bb_piece_rank)
     }
 
     pub fn rook_mask(square: usize) -> Bitboard {
-        let mut attacks: u64 = 0;
+        let location = Board::square_on_file_rank(square);
+        let bb_rook_square = BB_SQUARES[square];
+        let bb_edges = MoveGenerator::edges_without_piece(location);
+        let bb_mask = BB_FILES[location.0 as usize] | BB_RANKS[location.1 as usize];
 
-        // init target rank & files
-        let (tr, tf) = Board::square_on_file_rank(square);
-        // mask relevant rook occupancy bits
-        for i in 1..8 {
-            if tr + i <= 6 {
-                attacks |= 1u64 << ((tr + i) * 8 + tf);
-            }
-            if tr as isize - i as isize >= 1 {
-                attacks |= 1u64 << ((tr - i) * 8 + tf);
-            }
-            if tf + i <= 6 {
-                attacks |= 1u64 << (tr * 8 + tf + i);
-            }
-            if tf as isize - i as isize >= 1 {
-                attacks |= 1u64 << (tr * 8 + tf - i);
-            }
-        }
-        attacks
+        bb_mask & !bb_edges & !bb_rook_square
     }
     pub fn rook_attack(square: usize, blockers: &[Bitboard]) -> AttackBoard {
         // result attacks bitboard
