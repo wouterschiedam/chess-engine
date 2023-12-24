@@ -12,7 +12,7 @@ pub const BOARD_SIZE: usize = 64;
 
 pub use super::{magics::Magic, movelist::MoveList};
 use crate::{
-    board::defs::SQUARE_NAME,
+    board::defs::{PIECE_CHAR_CAPS, PIECE_CHAR_SMALL, PIECE_NAME, SQUARE_NAME},
     defs::{Castling, Piece, Square},
 };
 // bishop relevant occupancy bit count for every square on board
@@ -27,6 +27,8 @@ const ROOK_RELEVANT_BITS: [u8; 64] = [
     11, 10, 10, 10, 10, 10, 10, 11, 11, 10, 10, 10, 10, 10, 10, 11, 11, 10, 10, 10, 10, 10, 10, 11,
     11, 10, 10, 10, 10, 10, 10, 11, 12, 11, 11, 11, 11, 11, 11, 12,
 ];
+
+const MOVE_ONLY: usize = 0x00_00_00_00_00_FF_FF_FF;
 
 pub struct Shift;
 impl Shift {
@@ -61,7 +63,8 @@ impl From<usize> for Side {
         }
     }
 }
-#[derive(Clone, Copy, Debug)]
+
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Move {
     pub data: usize,
 }
@@ -101,6 +104,46 @@ impl Move {
     pub fn en_passant(&self) -> bool {
         ((self.data >> Shift::EN_PASSANT as u64) & 0x1) as u8 == 1
     }
+    pub fn get_sort_score(self) -> u32 {
+        ((self.data >> Shift::SORTSCORE as u64) & 0xFFFFFFFF) as u32
+    }
+
+    pub fn set_sort_score(&mut self, value: u32) {
+        let mask: usize = 0xFFFFFFFF << Shift::SORTSCORE;
+        let v: usize = (value as usize) << Shift::SORTSCORE;
+        self.data = (self.data & !mask) | v;
+    }
+    pub fn to_short_move(self) -> ShortMove {
+        ShortMove::new((self.data & MOVE_ONLY) as u32)
+    }
+
+    pub fn get_move(&self) -> u32 {
+        (self.data & MOVE_ONLY) as u32
+    }
+
+    pub fn as_string(&self) -> String {
+        format!(
+            "{}{}{}",
+            SQUARE_NAME[self.from()],
+            SQUARE_NAME[self.to()],
+            PIECE_CHAR_SMALL[self.promoted()]
+        )
+    }
+}
+
+#[derive(Copy, Clone, PartialEq)]
+pub struct ShortMove {
+    data: u32,
+}
+
+impl ShortMove {
+    pub fn new(m: u32) -> Self {
+        Self { data: m }
+    }
+
+    pub fn get_move(&self) -> u32 {
+        self.data
+    }
 }
 
 pub fn print_bitboard(bitboard: u64) -> () {
@@ -115,7 +158,7 @@ pub fn print_bitboard(bitboard: u64) -> () {
 
             // print ranks
             if column == 0 {
-                print!(" {}   ", 8 - row);
+                print!(" {}   ", row + 1);
             }
             // print bit state (either 1 or 0)
             print!(
@@ -137,6 +180,32 @@ pub fn print_bitboard(bitboard: u64) -> () {
 
     // print bitboard as unsigned decimal number
     println!("     Bitboard: {:?}\n\n", bitboard);
+}
+
+// Prints a given movelist to the screen.
+#[allow(dead_code)]
+pub fn movelist(ml: &MoveList) {
+    for i in 0..ml.len() {
+        move_data(ml.get_move(i), i);
+    }
+}
+
+// Prints decoded move data to the screen.
+#[allow(dead_code)]
+pub fn move_data(m: Move, nr: u8) {
+    println!(
+        "{}. Move: {}{}{} capture: {}, promotion: {}, ep: {}, double: {}, castling: {}, score: {}",
+        nr + 1,
+        PIECE_CHAR_CAPS[m.piece()],
+        SQUARE_NAME[m.from()],
+        SQUARE_NAME[m.to()],
+        PIECE_NAME[m.captured()],
+        PIECE_NAME[m.promoted()],
+        m.en_passant(),
+        m.double_push(),
+        m.castling(),
+        m.get_sort_score(),
+    );
 }
 
 pub fn castling_as_string(permissions: u8) -> String {

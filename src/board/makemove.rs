@@ -4,7 +4,10 @@ use super::{
 };
 use crate::{
     defs::{Castling, NrOf, Piece, Side, Sides, Square},
-    movegen::{defs::Move, MoveGenerator},
+    movegen::{
+        defs::{print_bitboard, Move},
+        MoveGenerator,
+    },
 };
 
 // Castling Permissions Per Square
@@ -49,10 +52,9 @@ impl Board {
         let double_push = m.double_push();
         let en_passant = m.en_passant();
 
-        let is_promotion = promoted != Pieces::NONE;
+        let _is_promotion = promoted != Pieces::NONE;
         let is_capture = captured != Pieces::NONE;
         let castling_perm = self.gamestate.castling > 0;
-
         // Base form not a pawn moves
         self.gamestate.halfclock_move += 1;
 

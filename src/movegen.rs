@@ -21,7 +21,6 @@ const PROMOTION_PIECES: [usize; 4] = [Pieces::QUEEN, Pieces::ROOK, Pieces::KNIGH
 
 pub const ROOK_TABLE_SIZE: usize = 102_400; // Total permutations of all rook blocker boards.
 pub const BISHOP_TABLE_SIZE: usize = 5_248; // Total permutations of all bishop blocker boards.
-
 pub struct MoveGenerator {
     pub king: [Bitboard; NrOf::SQUARES],
     pub knight: [Bitboard; NrOf::SQUARES],
@@ -63,9 +62,9 @@ impl MoveGenerator {
         self.piece(board, Pieces::BISHOP, move_list, move_type);
         self.piece(board, Pieces::QUEEN, move_list, move_type);
         self.pawn(board, move_list, move_type);
-        // if move_type == MoveType::All || move_type == MoveType::Quiet {
-        //     self.castling(board, move_list);
-        // }
+        if move_type == MoveType::All || move_type == MoveType::Quiet {
+            self.castling(board, move_list);
+        }
     }
 
     pub fn get_non_slider_moves(&self, piece: Piece, square: Square) -> Bitboard {
@@ -110,12 +109,10 @@ impl MoveGenerator {
     ) {
         let player = board.side_to_move();
         let bb_occupancy = board.occupancy();
-
         // find all square that are empty occupied by our pieces and opponent pieces
         let bb_empty = !bb_occupancy;
         let bb_own_pieces = board.bb_side[player];
         let bb_opponent_pieces = board.bb_side[board.side_to_not_move()];
-
         let mut bb_pieces = board.get_pieces(piece, player);
         // Generate all moves for each piece
         while bb_pieces > 0 {
@@ -139,10 +136,10 @@ impl MoveGenerator {
 
     pub fn pawn(&self, board: &Board, move_list: &mut MoveList, move_type: MoveType) {
         const UP: i8 = 8;
-        const DOWN: i8 = 8;
+        const DOWN: i8 = -8;
 
         let player = board.side_to_move();
-        let bb_opponent_pieces = board.bb_pieces[board.side_to_not_move()];
+        let bb_opponent_pieces = board.bb_side[board.side_to_not_move()];
         let bb_empty = !board.occupancy();
         let bb_fourth = BB_RANKS[Board::fourth_rank(player)];
         let direction = if player == Sides::WHITE { UP } else { DOWN };
@@ -162,17 +159,17 @@ impl MoveGenerator {
                 let bb_two_step = bb_one_step.rotate_left(rotation_count) & bb_empty & bb_fourth;
                 bb_moves |= bb_one_step | bb_two_step
             }
+            // print_bitboard(bb_moves);
 
             if move_type == MoveType::All || move_type == MoveType::Capture {
                 let bb_targets = self.get_pawn_attacks(player, from);
-                let bb_captures = bb_targets & bb_empty;
+                let bb_captures = bb_targets & bb_opponent_pieces;
                 let bb_ep_captures = match board.gamestate.en_passant {
                     Some(ep) => bb_targets & BB_SQUARES[ep as usize],
                     None => 0,
                 };
                 bb_moves |= bb_captures | bb_ep_captures
             }
-
             self.add_move(board, Pieces::PAWN, from, bb_moves, move_list);
         }
     }

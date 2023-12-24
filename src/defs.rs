@@ -3,6 +3,14 @@ pub type Piece = usize;
 pub type Side = usize;
 pub type Square = usize;
 
+pub struct About;
+impl About {
+    pub const ENGINE: &'static str = "Rust engine";
+    pub const VERSION: &'static str = env!("CARGO_PKG_VERSION");
+    pub const AUTHOR: &'static str = "Wouter van Krugten";
+    pub const EMAIL: &'static str = "mail@wouterschiedam.nl";
+}
+
 #[derive(Copy, Clone, PartialEq)]
 pub struct Sides;
 impl Sides {

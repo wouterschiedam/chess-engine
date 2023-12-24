@@ -113,8 +113,8 @@ pub fn apply(board: &Board) -> (i16, i16) {
     let mut w_psqt: i16 = 0;
     let mut b_psqt: i16 = 0;
 
-    let mut bb_w = board.bb_pieces[Sides::WHITE];
-    let mut bb_b = board.bb_pieces[Sides::BLACK];
+    let bb_w = board.bb_pieces[Sides::WHITE];
+    let bb_b = board.bb_pieces[Sides::BLACK];
 
     for (piece_type, (w, b)) in bb_w.iter().zip(bb_b.iter()).enumerate() {
         let mut white_piece = *w;

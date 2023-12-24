@@ -58,7 +58,6 @@ impl Board {
                 let parser = &fen_parser[i];
                 let part = &fen_parts[i];
                 let is_ok = parser(&mut new_board, part);
-                // println!("{}", is_ok);
                 result = if is_ok { Ok(()) } else { Err(i as u8) };
                 i += 1;
             }
@@ -71,7 +70,6 @@ impl Board {
         result
     }
 }
-
 fn pieces(board: &mut Board, part: &str) -> bool {
     let mut rank = Ranks::R8 as usize;
     let mut file = Files::A as usize;
@@ -208,13 +206,14 @@ fn fullmovenumber(board: &mut Board, part: &str) -> bool {
     let length = part.len();
 
     let mut result = false;
-
     if length >= 1 || length <= 4 {
         if let Ok(x) = part.parse::<u16>() {
             if x < MAX_GAME_MOVES as u16 {
                 board.gamestate.fullmove_number = x;
                 result = true;
             }
+        } else {
+            println!("Could not parse string to u16");
         }
     }
 
