@@ -2,7 +2,7 @@ use super::defs::Move;
 use crate::defs::MAXLEGAL_MOVES;
 use std::mem;
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 pub struct MoveList {
     pub moves: [Move; MAXLEGAL_MOVES as usize],
     count: u8,

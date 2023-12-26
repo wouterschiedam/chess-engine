@@ -349,7 +349,7 @@ impl Uci {
         let pv = summary.pv_as_string();
 
         let info = format!(
-            "info score {} {} time {} nodes {} nps {}pv {}",
+            "info score {} {} time {} nodes {} nps {} pv {}",
             score, depth, summary.time, summary.nodes, summary.nps, pv,
         );
 

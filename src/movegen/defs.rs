@@ -12,8 +12,8 @@ pub const BOARD_SIZE: usize = 64;
 
 pub use super::{magics::Magic, movelist::MoveList};
 use crate::{
-    board::defs::{PIECE_CHAR_CAPS, PIECE_CHAR_SMALL, PIECE_NAME, SQUARE_NAME},
-    defs::{Castling, Piece, Square},
+    board::defs::{RangeOf, PIECE_CHAR_CAPS, PIECE_CHAR_SMALL, PIECE_NAME, SQUARE_NAME},
+    defs::{Castling, NrOf, Piece, Square},
 };
 // bishop relevant occupancy bit count for every square on board
 const BISHOP_RELEVANT_BITS: [u8; 64] = [
@@ -148,18 +148,15 @@ impl ShortMove {
 
 pub fn print_bitboard(bitboard: u64) -> () {
     println!("\n");
+    let coordinate_alpha: &str = "ABCDEFGH";
+    let mut coordinate_digit = NrOf::FILES;
 
-    // loop over board ranks
-    for row in 0..MAX_ROWS {
-        // loop over board files
-        for column in 0..MAX_COLUMNS {
-            // convert file & rank into square index
-            let square = row * 8 + column;
+    for current_rank in RangeOf::RANKS.rev() {
+        print!("{coordinate_digit}    ");
 
-            // print ranks
-            if column == 0 {
-                print!(" {}   ", row + 1);
-            }
+        for current_file in RangeOf::FILES {
+            let square = (current_rank as usize * NrOf::FILES) + current_file as usize;
+
             // print bit state (either 1 or 0)
             print!(
                 " {:?}",
@@ -171,12 +168,18 @@ pub fn print_bitboard(bitboard: u64) -> () {
             );
         }
 
-        // print new line every rank
-        println!("\n");
+        println!();
+        println!();
+        coordinate_digit -= 1;
     }
 
-    // print board files
-    println!("\n      a b c d e f g h\n");
+    print!("      ");
+    for c in coordinate_alpha.chars() {
+        print!("{c} ");
+    }
+
+    println!();
+    println!();
 
     // print bitboard as unsigned decimal number
     println!("     Bitboard: {:?}\n\n", bitboard);

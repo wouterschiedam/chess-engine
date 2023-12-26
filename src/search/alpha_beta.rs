@@ -17,12 +17,14 @@ impl Search {
         //     Search::check_termination();
         // }
         let mut pvs = false; // Principal variation search
-                             // First check if we are in check
+
+        // First check if we are in check
         let is_check = refs.move_generator.square_attacked(
             refs.board,
             refs.board.side_to_not_move(),
             refs.board.king_square(refs.board.side_to_move()),
         );
+
         // Go deeper in depth to look for the best option to get out of the check
         if is_check {
             depth += 1;

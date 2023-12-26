@@ -1,4 +1,5 @@
 use super::MoveGenerator;
+use crate::board::defs::{Files, BB_FILES, BB_SQUARES};
 use crate::movegen::magics::{Magic, BISHOP_MAGIC_NRS, ROOK_MAGIC_NRS};
 use crate::movegen::{defs::*, BISHOP_TABLE_SIZE, ROOK_TABLE_SIZE};
 use crate::{
@@ -81,30 +82,12 @@ impl MoveGenerator {
 
     // Pawn attacks table [side][square]
     pub fn init_pawn_attack(&mut self) {
-        for square in RangeOf::SQUARES {
-            let mut bitboard: u64 = 0;
-            let mut w: u64 = 0;
-            let mut b: u64 = 0;
-
-            set_bit(&mut bitboard, square);
-
-            // White pawns
-            if (bitboard >> 7) & NOT_A_FILE != 0 {
-                w |= bitboard >> 7;
-            }
-            if (bitboard >> 9) & NOT_H_FILE != 0 {
-                w |= bitboard >> 9;
-            }
-            // Black pawns
-            if (bitboard << 7) & NOT_H_FILE != 0 {
-                b |= bitboard << 7;
-            }
-            if (bitboard << 9) & NOT_A_FILE != 0 {
-                b |= bitboard << 9;
-            }
-
-            self.pawns[Sides::WHITE][square] = w;
-            self.pawns[Sides::BLACK][square] = b;
+        for sq in RangeOf::SQUARES {
+            let bb_square = BB_SQUARES[sq];
+            let w = (bb_square & !BB_FILES[Files::A]) << 7 | (bb_square & !BB_FILES[Files::H]) << 9;
+            let b = (bb_square & !BB_FILES[Files::A]) >> 9 | (bb_square & !BB_FILES[Files::H]) >> 7;
+            self.pawns[Sides::WHITE][sq] = w;
+            self.pawns[Sides::BLACK][sq] = b;
         }
     }
 

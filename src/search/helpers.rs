@@ -43,6 +43,9 @@ impl Search {
         if seconds > 0f64 {
             nps = (nodes as f64 / seconds).round() as usize;
         }
+        // if nps == 0 {
+        //     nps = 1;
+        // }
         nps
     }
 }

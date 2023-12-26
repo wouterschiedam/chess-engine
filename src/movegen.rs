@@ -6,7 +6,7 @@ mod movelist;
 
 use crate::{
     board::{
-        defs::{Pieces, Squares, BB_RANKS, BB_SQUARES},
+        defs::{Pieces, Squares, BB_RANKS, BB_SQUARES, SQUARE_NAME},
         Board,
     },
     defs::{Bitboard, Castling, NrOf, Piece, Side, Sides, Square, EMPTY},
@@ -145,13 +145,14 @@ impl MoveGenerator {
         let direction = if player == Sides::WHITE { UP } else { DOWN };
         let rotation_count = (NrOf::SQUARES as i8 + direction) as u32;
         let mut bb_pawn = board.get_pieces(Pieces::PAWN, player);
-
         while bb_pawn > 0 {
             let from = bits::next(&mut bb_pawn);
             let to = (from as i8 + direction) as usize;
 
-            let mut bb_moves = 0;
+            // println!("from {}, direction {}", from, direction);
+            // println!("to {}", to);
 
+            let mut bb_moves = 0;
             // generate pawn pushes
             if move_type == MoveType::All || move_type == MoveType::Quiet {
                 let bb_push = BB_SQUARES[to];
@@ -159,10 +160,11 @@ impl MoveGenerator {
                 let bb_two_step = bb_one_step.rotate_left(rotation_count) & bb_empty & bb_fourth;
                 bb_moves |= bb_one_step | bb_two_step
             }
-            // print_bitboard(bb_moves);
 
+            // generate pawn captures
             if move_type == MoveType::All || move_type == MoveType::Capture {
                 let bb_targets = self.get_pawn_attacks(player, from);
+
                 let bb_captures = bb_targets & bb_opponent_pieces;
                 let bb_ep_captures = match board.gamestate.en_passant {
                     Some(ep) => bb_targets & BB_SQUARES[ep as usize],
@@ -174,7 +176,7 @@ impl MoveGenerator {
         }
     }
 
-    pub fn castling(&self, board: &Board, move_list: &mut MoveList) {
+    pub fn castling(&self, board: &Board, move_list: &mut MoveList) -> bool {
         let player = board.side_to_move();
         let opponent = board.side_to_not_move();
 
@@ -247,6 +249,8 @@ impl MoveGenerator {
                 }
             }
         }
+
+        move_list.len() > 0
     }
 
     pub fn add_move(
@@ -272,6 +276,11 @@ impl MoveGenerator {
             let promotion = is_pawn && Board::square_on_rank(to_square, promotion_rank);
             let double_push = is_pawn && ((to_square as i8 - from as i8).abs() == 16);
             let castling = (piece == Pieces::KING) && ((to_square as i8 - from as i8).abs() == 2);
+            // if piece == Pieces::KING
+            //     && self.square_attacked(&board, board.side_to_not_move(), to_square)
+            // {
+            //     continue;
+            // }
 
             // add all data into a 64 bit variable
             let mut move_data = (piece)
@@ -303,7 +312,7 @@ impl MoveGenerator {
         let attackers = board.bb_pieces[attacker];
 
         // Use the super-piece method: get the moves for each piece,
-        // starting from the given square. This provides the sqaures where
+        // starting from the given square. This provides the squares where
         // a piece has to be, to be able to reach the given square.
         let occupancy = board.occupancy();
         let bb_king = self.get_non_slider_moves(Pieces::KING, square);
@@ -323,5 +332,258 @@ impl MoveGenerator {
             || (bb_bishop & attackers[Pieces::BISHOP] > 0)
             || (bb_knight & attackers[Pieces::KNIGHT] > 0)
             || (bb_pawns & attackers[Pieces::PAWN] > 0)
+    }
+}
+
+// ------------------ Test for movegeneration -------------------- \\
+
+#[cfg(test)]
+mod tests {
+
+    use super::*;
+
+    #[test]
+    fn pawn_moves_start_pos() {
+        let mut board = Board::new();
+        let _ = Board::read_fen(
+            &mut board,
+            Some("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"),
+        );
+        let mut move_list = MoveList::new();
+        let move_generator = MoveGenerator::new();
+        let _ = move_generator.pawn(&board, &mut move_list, MoveType::All);
+        assert_eq!(move_list.len(), 16);
+    }
+
+    #[test]
+    fn white_moves_random_pos() {
+        let mut board = Board::new();
+        let _ = Board::read_fen(
+            &mut board,
+            Some("Q7/6R1/P5b1/1P6/1P3kP1/p3qPb1/K4p2/2B1N3 w - - 0 1"),
+        );
+        let move_generator = MoveGenerator::new();
+        // ----- Pawns ----- \\
+        let mut move_list = MoveList::new();
+        let _ = move_generator.pawn(&board, &mut move_list, MoveType::All);
+        assert_eq!(move_list.len(), 3);
+
+        // ----- Rook ----- \\
+        let mut move_list = MoveList::new();
+        let _ = move_generator.piece(&board, Pieces::ROOK, &mut move_list, MoveType::All);
+        assert_eq!(move_list.len(), 9);
+
+        // ----- Bishop ----- \\
+        let mut move_list = MoveList::new();
+        let _ = move_generator.piece(&board, Pieces::BISHOP, &mut move_list, MoveType::All);
+        assert_eq!(move_list.len(), 4);
+
+        // ----- Knight ----- \\
+        let mut move_list = MoveList::new();
+        let _ = move_generator.piece(&board, Pieces::KNIGHT, &mut move_list, MoveType::All);
+        assert_eq!(move_list.len(), 3);
+
+        // ----- Queen ----- \\
+        let mut move_list = MoveList::new();
+        let _ = move_generator.piece(&board, Pieces::QUEEN, &mut move_list, MoveType::All);
+        assert_eq!(move_list.len(), 12);
+
+        // ----- King ----- \\
+        let mut move_list = MoveList::new();
+        let _ = move_generator.piece(&board, Pieces::KING, &mut move_list, MoveType::All);
+        assert_eq!(move_list.len(), 5);
+    }
+
+    #[test]
+    fn black_moves_random_pos() {
+        let mut board = Board::new();
+        let _ = Board::read_fen(
+            &mut board,
+            Some("2b3rB/2P1k3/6P1/1Q2p1PP/1P2r3/2K1P3/1p4n1/8 b - - 0 1"),
+        );
+        let move_generator = MoveGenerator::new();
+        // ----- Pawns ----- \\
+        let mut move_list = MoveList::new();
+        let _ = move_generator.pawn(&board, &mut move_list, MoveType::All);
+        // let result: Vec<&Move> = move_list.moves.iter().filter(|x| x.data > 0).collect();
+        // for x in &result {
+        //     println!(
+        //         "{}{}{}",
+        //         PIECE_CHAR_CAPS[x.piece()],
+        //         SQUARE_NAME[x.from()],
+        //         SQUARE_NAME[x.to()],
+        //     );
+        // }
+        // 4 Because 1 move with 4 possible outcomes of promoting the pawn.
+        assert_eq!(move_list.len(), 4);
+
+        // ----- Rook ----- \\
+        let mut move_list = MoveList::new();
+        let _ = move_generator.piece(&board, Pieces::ROOK, &mut move_list, MoveType::All);
+        assert_eq!(move_list.len(), 13);
+
+        // ----- Bishop ----- \\
+        let mut move_list = MoveList::new();
+        let _ = move_generator.piece(&board, Pieces::BISHOP, &mut move_list, MoveType::All);
+        assert_eq!(move_list.len(), 7);
+
+        // ----- Knight ----- \\
+        let mut move_list = MoveList::new();
+        let _ = move_generator.piece(&board, Pieces::KNIGHT, &mut move_list, MoveType::All);
+        assert_eq!(move_list.len(), 4);
+
+        // ----- Queen ----- \\
+        let mut move_list = MoveList::new();
+        let _ = move_generator.piece(&board, Pieces::QUEEN, &mut move_list, MoveType::All);
+        assert_eq!(move_list.len(), 0);
+
+        // ----- King ----- \\
+        let mut move_list = MoveList::new();
+        let _ = move_generator.piece(&board, Pieces::KING, &mut move_list, MoveType::All);
+        assert_eq!(move_list.len(), 8);
+    }
+
+    #[test]
+    fn white_king_side_castle() {
+        let mut board = Board::new();
+        let move_generator = MoveGenerator::new();
+
+        // White castling
+        let mut move_list = MoveList::new();
+        let _ = board.read_fen(Some("8/8/8/8/8/8/8/4K2R w KQkq - 0 1"));
+        assert!(move_generator.castling(&board, &mut move_list));
+
+        // White castling rook under attack
+        let mut move_list = MoveList::new();
+        let _ = board.read_fen(Some("8/8/2b5/8/8/6P1/5P1P/4K2R w KQkq - 0 1"));
+        assert!(move_generator.castling(&board, &mut move_list));
+
+        // Can't castle out of check
+        let mut move_list = MoveList::new();
+        let _ = board.read_fen(Some("4r3/8/2b5/8/8/6P1/5P1P/4K2R w KQkq - 0 1"));
+        assert!(!move_generator.castling(&board, &mut move_list));
+
+        // Can't castle through check
+        let mut move_list = MoveList::new();
+        let _ = board.read_fen(Some("8/8/8/8/8/6Pb/5P1P/4K2R w KAha - 0 1"));
+        assert!(!move_generator.castling(&board, &mut move_list));
+
+        // Can't castle piece in the way
+        let mut move_list = MoveList::new();
+        let _ = board.read_fen(Some("8/8/8/8/8/6PN/5P1P/4KP1R w KAha - 0 1"));
+        assert!(!move_generator.castling(&board, &mut move_list));
+
+        // Can't piece in the way
+        let mut move_list = MoveList::new();
+        let _ = board.read_fen(Some("8/8/8/8/8/6PN/5P1P/4K1PR w KAha - 0 1"));
+        assert!(!move_generator.castling(&board, &mut move_list));
+    }
+
+    #[test]
+    fn white_queen_side_castle() {
+        let mut board = Board::new();
+        let move_generator = MoveGenerator::new();
+
+        // White castling
+        let mut move_list = MoveList::new();
+        let _ = board.read_fen(Some("8/8/8/8/8/8/8/R3K3 w HQha - 0 1"));
+        assert!(move_generator.castling(&board, &mut move_list));
+
+        // White castling
+        let mut move_list = MoveList::new();
+        let _ = board.read_fen(Some("8/8/8/8/8/2P5/PP1P4/R3K1N1 w HQha - 0 1"));
+        assert!(move_generator.castling(&board, &mut move_list));
+
+        // Can't castle out of check
+        let mut move_list = MoveList::new();
+        let _ = board.read_fen(Some("8/8/8/8/8/2P2n2/PP1P4/R3K1N1 w HQha - 0 1"));
+        assert!(!move_generator.castling(&board, &mut move_list));
+
+        // Can't castle through check
+        let mut move_list = MoveList::new();
+        let _ = board.read_fen(Some("8/8/8/8/8/2n5/PP1P4/R3K1N1 w HQha - 0 1"));
+        assert!(!move_generator.castling(&board, &mut move_list));
+
+        // Can't castle piece in the way
+        let mut move_list = MoveList::new();
+        let _ = board.read_fen(Some("8/8/8/8/8/2P5/PP1P4/R2QK1N1 w HQha - 0 1"));
+        assert!(!move_generator.castling(&board, &mut move_list));
+
+        // Can't piece in the way
+        let mut move_list = MoveList::new();
+        let _ = board.read_fen(Some("8/8/8/8/8/2P5/PP1P4/Rn2K1N1 w HQha - 0 1"));
+        assert!(!move_generator.castling(&board, &mut move_list));
+    }
+
+    #[test]
+    fn black_king_side_castle() {
+        let mut board = Board::new();
+        let move_generator = MoveGenerator::new();
+
+        // Black castling
+        let mut move_list = MoveList::new();
+        let _ = board.read_fen(Some("1p2k2r/8/8/8/8/8/8/8 b HAka - 0 1"));
+        assert!(move_generator.castling(&board, &mut move_list));
+
+        // Black castling
+        let mut move_list = MoveList::new();
+        let _ = board.read_fen(Some("1p2k2r/4bp1p/6p1/8/8/8/8/1P4P1 b HAka - 0 1"));
+        assert!(move_generator.castling(&board, &mut move_list));
+
+        // Can't castle out of check
+        let mut move_list = MoveList::new();
+        let _ = board.read_fen(Some("1p2k2r/4bp1p/6p1/8/B7/8/8/1P4P1 b HAka - 0 1"));
+        assert!(!move_generator.castling(&board, &mut move_list));
+
+        // Can't castle through check
+        let mut move_list = MoveList::new();
+        let _ = board.read_fen(Some("1p2k2r/4bp1p/6pB/8/8/8/8/1P4P1 b HAka - 0 1"));
+        assert!(!move_generator.castling(&board, &mut move_list));
+
+        // Can't castle piece in the way
+        let mut move_list = MoveList::new();
+        let _ = board.read_fen(Some("1p2k1nr/4bp1p/6pn/8/8/8/8/1P4P1 b HAka - 0 1"));
+        assert!(!move_generator.castling(&board, &mut move_list));
+
+        // Can't piece in the way
+        let mut move_list = MoveList::new();
+        let _ = board.read_fen(Some("1p2kN1r/4bp1p/6pn/3n4/8/8/8/1P4P1 b KQkq - 0 1"));
+        assert!(!move_generator.castling(&board, &mut move_list));
+    }
+
+    #[test]
+    fn black_queen_side_castle() {
+        let mut board = Board::new();
+        let move_generator = MoveGenerator::new();
+
+        // Black castling
+        let mut move_list = MoveList::new();
+        let _ = board.read_fen(Some("r3k3/8/8/8/8/8/8/8 b KQkq - 0 1"));
+        assert!(move_generator.castling(&board, &mut move_list));
+
+        // Black castling
+        let mut move_list = MoveList::new();
+        let _ = board.read_fen(Some("r3k3/qpb5/3n4/8/8/8/8/8 b HAhq - 0 1"));
+        assert!(move_generator.castling(&board, &mut move_list));
+
+        // Can't castle out of check
+        let mut move_list = MoveList::new();
+        let _ = board.read_fen(Some("r3k3/qpb5/3n4/8/8/8/8/4Q3 b KQkq - 0 1"));
+        assert!(!move_generator.castling(&board, &mut move_list));
+
+        // Can't castle through check
+        let mut move_list = MoveList::new();
+        let _ = board.read_fen(Some("r3k3/qpb5/3n4/8/7Q/8/8/8 b HAhq - 0 1"));
+        assert!(!move_generator.castling(&board, &mut move_list));
+
+        // Can't castle piece in the way
+        let mut move_list = MoveList::new();
+        let _ = board.read_fen(Some("r2Pk3/qpb5/3n4/8/8/8/8/P7 b HAhq - 0 1"));
+        assert!(!move_generator.castling(&board, &mut move_list));
+
+        // Can't piece in the way
+        let mut move_list = MoveList::new();
+        let _ = board.read_fen(Some("rn2k3/qpb5/3n4/8/8/8/8/P7 b HAhq - 0 1"));
+        assert!(!move_generator.castling(&board, &mut move_list));
     }
 }
