@@ -148,9 +148,9 @@ impl MoveGenerator {
         while bb_pawn > 0 {
             let from = bits::next(&mut bb_pawn);
             let to = (from as i8 + direction) as usize;
-
-            // println!("from {}, direction {}", from, direction);
-            // println!("to {}", to);
+            if to > 64 {
+                break;
+            }
 
             let mut bb_moves = 0;
             // generate pawn pushes
@@ -164,14 +164,15 @@ impl MoveGenerator {
             // generate pawn captures
             if move_type == MoveType::All || move_type == MoveType::Capture {
                 let bb_targets = self.get_pawn_attacks(player, from);
-
                 let bb_captures = bb_targets & bb_opponent_pieces;
                 let bb_ep_captures = match board.gamestate.en_passant {
                     Some(ep) => bb_targets & BB_SQUARES[ep as usize],
                     None => 0,
                 };
+                // print_bitboard(bb_targets);
                 bb_moves |= bb_captures | bb_ep_captures
             }
+
             self.add_move(board, Pieces::PAWN, from, bb_moves, move_list);
         }
     }
@@ -187,7 +188,6 @@ impl MoveGenerator {
 
         let mut bb_king = board.get_pieces(Pieces::KING, player);
         let from = bits::next(&mut bb_king);
-
         // White castling
         if castle_perm_w && player == Sides::WHITE {
             // kingside
@@ -270,9 +270,10 @@ impl MoveGenerator {
             let to_square = bits::next(&mut bb_to);
             let capture = board.piece_list[to_square];
             let en_passant = match board.gamestate.en_passant {
-                Some(square) => is_pawn && ((to_square as i8 - from as i8) == 16),
+                Some(square) => is_pawn && (square as usize == to_square),
                 None => false,
             };
+
             let promotion = is_pawn && Board::square_on_rank(to_square, promotion_rank);
             let double_push = is_pawn && ((to_square as i8 - from as i8).abs() == 16);
             let castling = (piece == Pieces::KING) && ((to_square as i8 - from as i8).abs() == 2);
@@ -585,5 +586,76 @@ mod tests {
         let mut move_list = MoveList::new();
         let _ = board.read_fen(Some("rn2k3/qpb5/3n4/8/8/8/8/P7 b HAhq - 0 1"));
         assert!(!move_generator.castling(&board, &mut move_list));
+    }
+
+    #[test]
+    fn white_en_passant() {
+        let mut board = Board::new();
+        let move_generator = MoveGenerator::new();
+
+        // White left ep
+        let mut move_list = MoveList::new();
+        let _ = board.read_fen(Some("8/8/8/3pP3/8/8/8/8 w - d6 0 1"));
+        let _ = move_generator.pawn(&board, &mut move_list, MoveType::All);
+        assert!(move_list.len() == 2);
+
+        // White right ep
+        let mut move_list = MoveList::new();
+        let _ = board.read_fen(Some("8/8/8/4Pp2/8/8/8/8 w - f6 0 1"));
+        let _ = move_generator.pawn(&board, &mut move_list, MoveType::All);
+        assert!(move_list.len() == 2);
+
+        // White ep not possible
+        let mut move_list = MoveList::new();
+        let _ = board.read_fen(Some("8/8/8/4Pp2/8/8/8/8 w - - 0 1"));
+        let _ = move_generator.pawn(&board, &mut move_list, MoveType::All);
+        assert!(move_list.len() == 1);
+    }
+
+    #[test]
+    fn black_en_passant() {
+        let mut board = Board::new();
+        let move_generator = MoveGenerator::new();
+
+        // Black left ep
+        let mut move_list = MoveList::new();
+        let _ = board.read_fen(Some("8/8/8/8/1Pp5/8/8/8 b - b3 0 1"));
+        let _ = move_generator.pawn(&board, &mut move_list, MoveType::All);
+        assert!(move_list.len() == 2);
+
+        // White right ep
+        let mut move_list = MoveList::new();
+        let _ = board.read_fen(Some("8/8/8/8/pP6/8/8/8 b - b3 0 1"));
+        let _ = move_generator.pawn(&board, &mut move_list, MoveType::All);
+        assert!(move_list.len() == 2);
+
+        // White ep not possible
+        let mut move_list = MoveList::new();
+        let _ = board.read_fen(Some("8/8/8/8/pP6/8/8/8 b - - 0 1"));
+        let _ = move_generator.pawn(&board, &mut move_list, MoveType::All);
+        assert!(move_list.len() == 1);
+    }
+
+    #[test]
+    fn white_legal_moves() {
+        let mut board = Board::new();
+        let move_generator = MoveGenerator::new();
+
+        let possible_moves = [
+            "b5a4", "b5b4", "b5c4", "b5a5", "b5c5", "b5a6", "b5b6", "b5c6", "h1f2", "h1g3", "d6c4",
+            "d6e4", "d6f5", "d6b7", "d6c8", "d6e8", "g2g1", "g2b2", "g2c2", "g2d2", "g2e2", "g2f2",
+            "g2h2", "g2g3", "g2g4", "g2g5", "g8g7", "g8a8", "g8b8", "g8c8", "g8d8", "g8e8", "g8f8",
+            "g8h8", "h5d1", "h5e2", "h5f3", "h5g4", "c3c4", "g6g7", "e7e8q", "e7e8r", "e7e8n",
+            "e7e8b", "f7f8q", "f7f8r", "f7f8n", "f7f8b",
+        ];
+        // Generate random legal moves
+        let mut move_list = MoveList::new();
+        let _ = board.read_fen(Some("b5R1/4PP2/3Nk1P1/1K5B/8/1pP5/1p4Rp/6bN w - - 0 1"));
+        let _ = move_generator.generate_moves(&board, &mut move_list, MoveType::All);
+        for x in 0..move_list.moves.len() {
+            if move_list.moves[x].data != 0 {
+                assert_eq!(move_list.moves[x].as_string(), possible_moves[x]);
+            }
+        }
     }
 }

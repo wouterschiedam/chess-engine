@@ -229,22 +229,7 @@ pub fn castling_as_string(permissions: u8) -> String {
 
 // Convert square names to numbers.
 pub fn algebraic_from_str(square: &str) -> Option<usize> {
-    if square.len() != 2 {
-        // Invalid algebraic notation
-        panic!()
-    }
-
-    let file = square.chars().nth(0).unwrap();
-    let rank = square.chars().nth(1).unwrap();
-
-    // Convert algebraic notation to 0-based indices
-    let row = 8 - rank.to_digit(10).unwrap() as usize;
-    let column = (file as usize) - ('a' as usize);
-
-    // Calculate the index in the 1D bitboard representation
-    let square_index = row * 8 + column;
-
-    Some(square_index)
+    SQUARE_NAME.iter().position(|&element| element == square)
 }
 
 pub fn get_bit(bitboard: &u64, square: usize) -> u64 {

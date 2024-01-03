@@ -13,3 +13,4 @@ crossbeam-channel = "0.5.6"
 crossbeam-utils = "0.8.14"
 clap = "4.1.6"
 colored = "2.1.0"
+iced = { version = "0.10.0", features=["debug", "image"], resolver="2"}

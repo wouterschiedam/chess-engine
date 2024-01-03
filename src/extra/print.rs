@@ -7,6 +7,7 @@ use crate::{
         Board,
     },
     defs::{Bitboard, NrOf, Piece, Sides, Square},
+    evaluation::material::count,
     extra::print,
     movegen::defs::{castling_as_string, print_bitboard},
 };
@@ -135,6 +136,10 @@ fn game_metadata(board: &Board) {
 
     let half_moveclock = board.gamestate.halfclock_move;
     let full_movenumber = board.gamestate.fullmove_number;
+
+    let eval = count(&board);
+    println!("{:<20}{}", "White eval:", eval.0);
+    println!("{:<20}{}", "Black eval:", eval.1);
 
     println!("{:<20}{:x}", "Zobrist key:", board.gamestate.zobrist_key);
     println!("{:<20}{}", "Active Color:", turn);

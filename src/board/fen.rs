@@ -172,7 +172,6 @@ fn enpassant(board: &mut Board, part: &str) -> bool {
 
     if length == 2 {
         let square = algebraic_from_str(part);
-
         match square {
             Some(s) if EP_SQUARES_BLACK.contains(&s) || EP_SQUARES_WHITE.contains(&s) => {
                 board.gamestate.en_passant = Some(s as u8);

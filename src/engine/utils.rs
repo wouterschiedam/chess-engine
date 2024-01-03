@@ -33,7 +33,6 @@ impl Engine {
             Arc::clone(&self.board),
             Arc::clone(&self.movegen),
         );
-
         // update Comm interface
         self.comm.send(CommControl::Update);
 

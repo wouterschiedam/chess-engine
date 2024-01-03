@@ -75,7 +75,11 @@ impl Board {
         self.piece_list[square] = Pieces::NONE;
         self.gamestate.zobrist_key ^= self.zr.piece(side, square, piece);
         // Update material
-        self.gamestate.material[side] -= PIECE_VALUES[piece];
+        if !self.gamestate.material[side] < PIECE_VALUES[piece] {
+            self.gamestate.material[side] -= PIECE_VALUES[piece];
+        } else {
+            self.gamestate.material[side] = 0;
+        }
 
         let flip = side == Sides::WHITE;
         let s = if flip { FLIP[square] } else { square };
