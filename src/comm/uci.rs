@@ -115,6 +115,7 @@ impl Uci {
                 io::stdin()
                     .read_line(&mut t_incoming_data)
                     .expect("error reading input");
+                println!("{:?}", t_incoming_data);
 
                 let response_report = Self::create_report(&t_incoming_data);
 

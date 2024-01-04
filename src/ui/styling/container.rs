@@ -211,6 +211,23 @@ pub enum Squares {
 }
 
 #[derive(Default, Debug)]
+pub struct Terminal;
+
+impl iced::widget::container::StyleSheet for Terminal {
+    type Style = iced::Theme;
+
+    fn appearance(&self, _style: &Self::Style) -> iced::widget::container::Appearance {
+        iced::widget::container::Appearance {
+            background: Some(iced::Background::Color(Color::BLACK)),
+            text_color: Some(Color::WHITE),
+            border_width: 1.0,
+            border_color: Color::WHITE,
+            ..Default::default()
+        }
+    }
+}
+
+#[derive(Default, Debug)]
 pub struct LightSquare;
 
 impl iced::widget::container::StyleSheet for LightSquare {

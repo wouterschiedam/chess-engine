@@ -25,10 +25,10 @@ pub struct Engine {
     cmdline: Cmdline, // Command line interpreter.
     settings: Settings,
     board: Arc<Mutex<Board>>,
-    comm: Box<dyn IComm>, // Communications (active).
+    pub comm: Box<dyn IComm>, // Communications (active).
     movegen: Arc<MoveGenerator>,
     search: Search,
-    info_receiver: Option<Receiver<Information>>, // Receiver for incoming information.
+    pub info_receiver: Option<Receiver<Information>>, // Receiver for incoming information.
 }
 
 impl Engine {
