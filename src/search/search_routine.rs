@@ -32,7 +32,7 @@ impl Search {
                     best_move = root_pv[0];
                 }
 
-                // Create summury of search
+                // Create summary of search
                 let elapsed = refs.search_info.time_elapsed();
                 let nodes = refs.search_info.nodes;
                 let summary = SearchSummary {

@@ -3,7 +3,7 @@ use crate::defs::MAX_GAME_MOVES;
 
 #[derive(Clone, Debug)]
 pub struct History {
-    list: [GameState; MAX_GAME_MOVES],
+    pub list: [GameState; MAX_GAME_MOVES],
     count: usize,
 }
 

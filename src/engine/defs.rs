@@ -1,5 +1,6 @@
 use crate::{comm::CommReport, search::defs::SearchReport};
 
+#[derive(Debug, Clone)]
 pub struct Settings {
     pub threads: usize,
     pub quiet: bool,

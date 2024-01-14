@@ -1,10 +1,10 @@
 use super::{
-    defs::{Files, Pieces, Ranks, Squares, BB_SQUARES},
+    defs::{Files, Pieces, Ranks, Squares, BB_SQUARES, SQUARE_NAME},
     Board,
 };
 use crate::{
     defs::{Castling, Sides, Square, FEN_START_POSITION, MAX_GAME_MOVES, MAX_MOVE_RULE},
-    movegen::defs::{algebraic_from_str, print_bitboard},
+    movegen::defs::{algebraic_from_str, castling_as_string, print_bitboard},
 };
 use std::ops::RangeInclusive;
 
@@ -69,7 +69,90 @@ impl Board {
         }
         result
     }
+
+    pub fn create_fen(&self) -> String {
+        let mut fen: Vec<String> = vec![];
+
+        let mut skips: i8 = 0;
+
+        for rank in (1..=8).rev() {
+            for file in 1..=8 {
+                let pos = self.get_square((file as usize, rank as usize));
+                let piece = self.piece_on(pos);
+                let color = self.color_on(pos);
+                match piece {
+                    None => skips += 1,
+                    Some(piece) => {
+                        if skips != 0 {
+                            fen.push(skips.to_string());
+                            skips = 0;
+                        }
+                        let c_piece = match piece {
+                            Pieces::KING => 'k',
+                            Pieces::QUEEN => 'q',
+                            Pieces::ROOK => 'r',
+                            Pieces::KNIGHT => 'n',
+                            Pieces::BISHOP => 'b',
+                            Pieces::PAWN => 'p',
+                            _ => '.',
+                        }
+                        .to_string();
+
+                        fen.push(match color {
+                            Sides::WHITE => c_piece.to_uppercase(),
+                            Sides::BLACK => c_piece,
+                            _ => c_piece,
+                        });
+                    }
+                };
+            }
+
+            if skips != 0 {
+                fen.push(skips.to_string());
+                skips = 0;
+            }
+
+            if rank != 1 {
+                fen.push("/".to_string());
+            }
+        }
+
+        // Side to move
+        fen.push(" ".to_string());
+        fen.push(
+            match self.side_to_move() {
+                Sides::BLACK => 'b',
+                Sides::WHITE => 'w',
+                _ => ' ',
+            }
+            .to_string(),
+        );
+
+        // Castling rights
+        fen.push(" ".to_string());
+        fen.push(castling_as_string(self.gamestate.castling));
+
+        // en_passant
+        fen.push(" ".to_string());
+        let en_passant = if let Some(x) = self.gamestate.en_passant {
+            SQUARE_NAME[x as usize]
+        } else {
+            "-"
+        };
+        fen.push(en_passant.to_string());
+
+        // halfmoveclock
+        fen.push(" ".to_string());
+        fen.push(self.gamestate.halfclock_move.to_string());
+
+        // fullmovenumber
+        fen.push(" ".to_string());
+        fen.push(self.gamestate.fullmove_number.to_string());
+
+        fen.join("")
+    }
 }
+
 fn pieces(board: &mut Board, part: &str) -> bool {
     let mut rank = Ranks::R8 as usize;
     let mut file = Files::A as usize;

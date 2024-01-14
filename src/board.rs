@@ -1,19 +1,23 @@
 use self::{
-    defs::{Pieces, BB_SQUARES},
+    defs::{Pieces, Ranks, BB_SQUARES, PIECE_CHAR_CAPS, SQUARE_BITBOARD},
     gamestate::GameState,
     history::History,
     zobrist::ZobristKey,
     zobrist::ZobristRandoms,
 };
 use crate::{
+    board::defs::SQUARE_NAME,
     defs::{Bitboard, NrOf, Piece, Side, Sides, Square, EMPTY},
     evaluation::{
         defs::PIECE_VALUES,
         material,
         psqt::{self, FLIP, PSQT_MG},
     },
-    extra::bits,
-    movegen::defs::print_bitboard,
+    extra::{bits, parse::algebraic_square_to_number},
+    movegen::{
+        defs::{print_bitboard, Move, Shift},
+        PROMOTION_PIECES,
+    },
 };
 use std::sync::Arc;
 
@@ -45,6 +49,15 @@ impl Board {
             zr: Arc::new(ZobristRandoms::new()),
             history: History::new(),
         }
+    }
+
+    pub fn build() -> Self {
+        let mut board = Board::new();
+        let _ = board.read_fen(Some(
+            "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+        ));
+
+        board
     }
 
     pub fn get_pieces(&self, piece: Piece, side: Side) -> Bitboard {
@@ -130,6 +143,101 @@ impl Board {
         self.gamestate.active_color ^= 1;
         self.gamestate.zobrist_key ^= self.zr.side(self.gamestate.active_color as usize);
     }
+
+    // Helper funcitons for GUI
+    pub fn color_on(&self, position: Option<Square>) -> usize {
+        let square_number = position;
+        let bb_white = self.bb_side[Sides::WHITE];
+        let bb_black = self.bb_side[Sides::BLACK];
+
+        let is_white = bb_white & (1 << square_number.unwrap()) != 0;
+        let is_black = bb_black & (1 << square_number.unwrap()) != 0;
+        if is_white {
+            return Sides::WHITE;
+        }
+        if is_black {
+            return Sides::BLACK;
+        }
+
+        Sides::BOTH
+    }
+
+    pub fn piece_on(&self, position: Option<Square>) -> Option<usize> {
+        let square_number = position;
+        let white_pieces = self.bb_side[Sides::WHITE];
+        let black_pieces = self.bb_side[Sides::BLACK];
+
+        let is_white = white_pieces & (1 << &square_number.unwrap()) != 0;
+        let is_black = black_pieces & (1 << &square_number.unwrap()) != 0;
+
+        if is_white {
+            let bb_w = self.bb_pieces[Sides::WHITE];
+            for (piece, w) in bb_w.iter().enumerate() {
+                if w & (1 << &square_number.unwrap()) != 0 {
+                    return Some(piece);
+                }
+            }
+        }
+        if is_black {
+            let bb_b = self.bb_pieces[Sides::BLACK];
+            for (piece, b) in bb_b.iter().enumerate() {
+                if b & (1 << &square_number.unwrap()) != 0 {
+                    return Some(piece);
+                }
+            }
+        }
+
+        None
+    }
+
+    pub fn get_square(&self, position: (usize, usize)) -> Option<Square> {
+        let row = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
+        let square_number =
+            algebraic_square_to_number(format!("{}{}", row[position.0 - 1], position.1).as_str());
+
+        square_number
+    }
+
+    pub fn generate_move_data(&self, from: &usize, to: &Option<usize>, side: bool) -> usize {
+        let piece = self.piece_on(Some(*from));
+        let is_pawn = piece.unwrap() == Pieces::PAWN;
+        let capture = self.piece_list[to.unwrap()];
+        let en_passant = match self.gamestate.en_passant {
+            Some(square) => is_pawn && (square as usize == to.unwrap()),
+            None => false,
+        };
+        let promotion_rank;
+        if side {
+            promotion_rank = Ranks::R8;
+        } else {
+            promotion_rank = Ranks::R1;
+        }
+        let promotion = is_pawn && Board::square_on_rank(to.unwrap(), promotion_rank);
+        let double_push = is_pawn && ((to.unwrap() as i8 - *from as i8).abs() == 16);
+        let castling =
+            (piece.unwrap() == Pieces::KING) && ((to.unwrap() as i8 - *from as i8).abs() == 2);
+        // add all data into a 64 bit variable
+        let mut move_data = (piece.unwrap())
+            | from << Shift::FROM_SQ
+            | to.unwrap() << Shift::TO_SQ
+            | capture << Shift::CAPTURE
+            | (en_passant as usize) << Shift::EN_PASSANT
+            | (double_push as usize) << Shift::DOUBLE_STEP
+            | (castling as usize) << Shift::CASTLING;
+
+        if !promotion {
+            move_data |= Pieces::NONE << Shift::PROMOTION;
+        } else {
+            PROMOTION_PIECES.iter().for_each(|piece| {
+                let promotion_piece = *piece << Shift::PROMOTION;
+                move_data = move_data | promotion_piece;
+            });
+        }
+
+        move_data
+    }
+
+    // End helper functions
 }
 
 // Private board functions (for startup)

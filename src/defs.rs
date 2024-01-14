@@ -11,7 +11,7 @@ impl About {
     pub const EMAIL: &'static str = "mail@wouterschiedam.nl";
 }
 
-#[derive(Copy, Clone, PartialEq)]
+#[derive(Copy, Debug, Clone, PartialEq)]
 pub struct Sides;
 impl Sides {
     pub const WHITE: Side = 0;

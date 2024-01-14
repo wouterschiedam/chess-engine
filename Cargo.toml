@@ -13,4 +13,6 @@ crossbeam-channel = "0.5.6"
 crossbeam-utils = "0.8.14"
 clap = "4.1.6"
 colored = "2.1.0"
-iced = { version = "0.10", features=["debug", "image", "advanced"], resolver="2"}
+iced = { version = "0.10", features=["debug", "tokio", "svg", "image", "advanced", "lazy"], resolver="2"}
+iced_aw = {version = "0.7.0", default-features = false, features = ["tabs"] }
+tokio = { version = "1.27.0", features = ["process", "io-std", "io-util", "sync"] }

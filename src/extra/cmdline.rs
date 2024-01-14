@@ -57,6 +57,7 @@ impl CmdLineArgs {
     const EPD_TEST_HELP: &'static str = "Run EPD Test Suite";
 }
 
+#[derive(Debug, Clone)]
 pub struct Cmdline {
     arguments: ArgMatches,
 }

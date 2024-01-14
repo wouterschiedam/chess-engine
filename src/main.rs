@@ -1,8 +1,7 @@
 use std::thread;
 
 use engine::Engine;
-use iced::Settings;
-use ui::ui::{run, Editor};
+use ui::ui::run;
 mod board;
 mod comm;
 mod defs;
@@ -15,10 +14,10 @@ pub mod ui;
 
 fn main() {
     // Start thread for the chess engine
-    // let _ = thread::spawn(|| {
-    //     let mut engine = Engine::new();
-    //     let _ = engine.run();
-    // });
+    let _ = thread::spawn(|| {
+        let mut engine = Engine::new();
+        let _ = engine.run();
+    });
 
     run();
 }

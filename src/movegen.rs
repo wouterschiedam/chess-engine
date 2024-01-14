@@ -17,7 +17,8 @@ use crate::movegen::magics::Magic;
 
 use self::defs::{print_bitboard, Move, MoveList, MoveType, Shift};
 
-const PROMOTION_PIECES: [usize; 4] = [Pieces::QUEEN, Pieces::ROOK, Pieces::KNIGHT, Pieces::BISHOP];
+pub const PROMOTION_PIECES: [usize; 4] =
+    [Pieces::QUEEN, Pieces::ROOK, Pieces::KNIGHT, Pieces::BISHOP];
 
 pub const ROOK_TABLE_SIZE: usize = 102_400; // Total permutations of all rook blocker boards.
 pub const BISHOP_TABLE_SIZE: usize = 5_248; // Total permutations of all bishop blocker boards.
