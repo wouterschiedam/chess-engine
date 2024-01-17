@@ -9,6 +9,8 @@ use tokio::process::{Child, ChildStdout, Command};
 use tokio::sync::mpsc::Receiver;
 use tokio::time::{self, timeout};
 
+use crate::extra::parse::algebraic_square_to_number;
+
 use super::ui::Message;
 
 #[derive(Debug, PartialEq)]
@@ -232,7 +234,6 @@ impl UIengine {
                                 let mut eval: Option<KeyCode> = None;
                                 let mut bestmove: Option<KeyCode> = None;
 
-
                                 // Get results from search
                                 let reader = BufReader::new(
                                     process.stdout.as_mut().expect("Failed to get stdout"),
@@ -251,14 +252,17 @@ impl UIengine {
                                 let bestmove =
                                     response[3].split_whitespace().collect::<Vec<&str>>()[1];
 
-                                // TODO: Send move to UI handle the move and play move!
-
                                 output
-                                    .try_send(Message::)
-                                    .await
+                                    .try_send(Message::SelectSquare(algebraic_square_to_number(
+                                        &bestmove[0..2],
+                                    )))
                                     .expect("Error on the mspc channel in the engine subscription");
 
-                                println!("{}", bestmove);
+                                output
+                                    .try_send(Message::SelectSquare(algebraic_square_to_number(
+                                        &bestmove[2..4],
+                                    )))
+                                    .expect("Error on the mspc channel in the engine subscription");
                             }
                             EngineState::TurnedOff => {
                                 tokio::time::sleep(std::time::Duration::from_millis(10)).await
