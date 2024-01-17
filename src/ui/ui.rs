@@ -1,9 +1,9 @@
 use std::path::Path;
 
-use super::config::UIConfig;
+use super::config::{GameMode, UIConfig};
 use super::engine::{EngineStatus, UIengine};
 use super::settings::{SettingsMessage, SettingsTab};
-use super::styling::button::{self, CustomButtonStyle};
+use super::styling::button::CustomButtonStyle;
 use crate::board::defs::Pieces;
 use crate::board::Board;
 use crate::defs::{Sides, Square};
@@ -121,6 +121,14 @@ impl Application for Editor {
                     println!("illegal move");
                 }
 
+                if self.settings.game_mode == GameMode::PlayerEngine {
+                    if let Some(sender) = &self.engine_sender {
+                        if let Err(e) = sender.blocking_send(self.board.create_fen()) {
+                            eprintln!("Lost connection with the engine: {}", e);
+                        }
+                    }
+                }
+
                 Command::none()
             }
             (_, Message::StartEngine) => {
@@ -146,7 +154,6 @@ impl Application for Editor {
                 Command::none()
             }
             (_, Message::EngineReady(message)) => {
-                println!("Engine is ready");
                 self.engine_sender = Some(message);
                 Command::none()
             }
@@ -160,6 +167,7 @@ impl Application for Editor {
                     self.settings.flip_board = settings.flip_board;
                     self.settings.show_coords = settings.show_coordinates;
                     self.settings.search_depth = settings.search_depth;
+                    self.settings.game_mode = settings.game_mode;
                 }
                 Command::none()
             }
@@ -198,6 +206,7 @@ impl Application for Editor {
                 self.settings.flip_board,
                 self.settings.show_coords,
                 self.settings.search_depth,
+                self.settings.game_mode,
                 self.settings.view(),
                 self.engine_status != EngineStatus::TurnedOff,
                 size,
@@ -217,6 +226,7 @@ fn main_view<'a>(
     flip_board: bool,
     show_coordinates: bool,
     search: u32,
+    game_mode: GameMode,
     settings_tab: Element<'a, Message, iced::Renderer<Theme>>,
     engine_started: bool,
     size: Size,
@@ -375,12 +385,15 @@ fn main_view<'a>(
 
     let mut navigation_row = Row::new().padding(3).spacing(10);
 
-    if engine_started {
-        navigation_row = navigation_row
-            .push(Button::new(Text::new("Stop engine")).on_press(Message::StartEngine));
-    } else {
-        navigation_row = navigation_row
-            .push(Button::new(Text::new("Start engine")).on_press(Message::StartEngine));
+    // Start engine only if playing against engine
+    if !(game_mode == GameMode::PlayerPlayer) {
+        if engine_started {
+            navigation_row = navigation_row
+                .push(Button::new(Text::new("Stop engine")).on_press(Message::StartEngine));
+        } else {
+            navigation_row = navigation_row
+                .push(Button::new(Text::new("Start engine")).on_press(Message::StartEngine));
+        }
     }
 
     navigation_row = navigation_row

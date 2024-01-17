@@ -19,14 +19,14 @@ pub enum EngineStatus {
 
 pub enum EngineState {
     Start(UIengine),
-    Thinking(Child, u32, Receiver<String>),
+    Thinking(Child, String, Receiver<String>),
     TurnedOff,
 }
 
 #[derive(Debug, Clone)]
 pub struct UIengine {
     pub engine_path: String,
-    pub search_up_to: u32,
+    pub search_up_to: String,
     pub position: String,
 }
 
@@ -34,7 +34,7 @@ impl UIengine {
     pub fn new() -> Self {
         Self {
             engine_path: String::from("./target/release/chess-engine"),
-            search_up_to: 3,
+            search_up_to: "3".to_string(),
             position: String::from("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"),
         }
     }
@@ -85,13 +85,14 @@ impl UIengine {
                                 }
 
                                 let mut reader = BufReader::new(
-                                    process.stdout.as_mut().expect("Failed to get stdout"),
+                                    process.stdout.take().expect("Failed to get stdout"),
                                 );
 
                                 let mut buffer_str = String::new();
 
                                 // read input from engine
-                                let uciok = read_setup_from_process(reader, &mut buffer_str).await;
+                                let uciok =
+                                    read_setup_from_process(&mut reader, &mut buffer_str).await;
 
                                 if uciok {
                                     if let Some(stdin) = process.stdin.as_mut() {
@@ -105,12 +106,8 @@ impl UIengine {
                                         stdin.flush().await.expect("Error flushing stdin");
                                     }
 
-                                    let mut reader = BufReader::new(
-                                        process.stdout.as_mut().expect("Failed to get stdout"),
-                                    );
-
                                     let readyok =
-                                        read_setup_from_process(reader, &mut buffer_str).await;
+                                        read_setup_from_process(&mut reader, &mut buffer_str).await;
 
                                     if readyok {
                                         if let Some(mut stdin) = process.stdin.take() {
@@ -130,7 +127,7 @@ impl UIengine {
 
                                         state = EngineState::Thinking(
                                             process,
-                                            engine.search_up_to,
+                                            engine.search_up_to.to_string(),
                                             receiver,
                                         );
 
@@ -208,7 +205,7 @@ impl UIengine {
                                             + &String::from("\n");
 
                                         let limit = String::from("go depth ")
-                                            + &search_up_to.to_string()
+                                            + &search_up_to
                                             + &String::from("\n");
 
                                         println!("Thinking: {}depth: {}", pos, limit);
@@ -217,9 +214,6 @@ impl UIengine {
                                                 .write_all(pos.as_bytes())
                                                 .await
                                                 .expect("Error communicating with the engine");
-
-                                            stdin.flush().await.expect("Error flushing stdin");
-
                                             stdin
                                                 .write_all(limit.as_bytes())
                                                 .await
@@ -230,19 +224,22 @@ impl UIengine {
                                     }
                                 }
 
+                                let mut buffer_str = String::new();
                                 let mut eval: Option<KeyCode> = None;
                                 let mut bestmove: Option<KeyCode> = None;
 
                                 println!("Go fetch results");
 
                                 // Get results from search
-                                let reader = BufReader::new(
-                                    process.stdout.as_mut().expect("Failed to get stdout"),
+                                let mut reader = BufReader::new(
+                                    process.stdout.take().expect("Failed to get stdout"),
                                 );
                                 let mut buffer_str = String::new();
 
                                 let response =
-                                    match read_moves_from_process(reader, &mut buffer_str).await {
+                                    match read_moves_from_process(&mut reader, &mut buffer_str)
+                                        .await
+                                    {
                                         Ok(line) => line,
                                         Err(error) => {
                                             eprintln!("Error reading from stdin {}", error);
@@ -264,7 +261,7 @@ impl UIengine {
 }
 
 pub async fn read_setup_from_process(
-    mut reader: BufReader<&mut ChildStdout>,
+    reader: &mut BufReader<ChildStdout>,
     mut buffer_str: &mut String,
 ) -> bool {
     loop {
@@ -295,7 +292,7 @@ pub async fn read_setup_from_process(
 }
 
 pub async fn read_moves_from_process(
-    mut reader: BufReader<&mut ChildStdout>,
+    reader: &mut BufReader<ChildStdout>,
     mut buffer_str: &mut String,
 ) -> Result<String, Box<dyn Error>> {
     loop {
@@ -306,7 +303,7 @@ pub async fn read_moves_from_process(
                 .map(|_| buffer_str.clone())
         };
 
-        match time::timeout(Duration::from_millis(10000), read_line_result).await {
+        match time::timeout(Duration::from_millis(3000), read_line_result).await {
             Ok(Ok(line)) => {
                 return Ok(line);
             }

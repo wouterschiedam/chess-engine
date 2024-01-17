@@ -17,11 +17,11 @@ impl Engine {
             format!("{} (unused, always 1)", s.threads)
         };
 
-        println!("{:<10} {} {}", "Engine:", About::ENGINE, About::VERSION);
-        println!("{:<10} {}", "Author:", About::AUTHOR);
-        println!("{:<10} {}", "EMail:", About::EMAIL);
-        println!("{:<10} {bits}-bit", "Type:");
-        println!("{:<10} {hash}", "Hash:");
-        println!("{:<10} {threads}", "Threads:");
+        // println!("{:<10} {} {}", "Engine:", About::ENGINE, About::VERSION);
+        // println!("{:<10} {}", "Author:", About::AUTHOR);
+        // println!("{:<10} {}", "EMail:", About::EMAIL);
+        // println!("{:<10} {bits}-bit", "Type:");
+        // println!("{:<10} {hash}", "Hash:");
+        // println!("{:<10} {threads}", "Threads:");
     }
 }
