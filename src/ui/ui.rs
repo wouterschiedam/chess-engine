@@ -35,6 +35,7 @@ pub enum Message {
     Settings(SettingsMessage),
     ChangeSettings(Option<UIConfig>),
     SelectSquare(Option<Square>),
+    EngineMove(String),
     EventOccurred(iced::Event),
     StartEngine,
     EngineReady(Sender<String>),
@@ -112,8 +113,9 @@ impl Application for Editor {
                     .generate_moves(&self.board, &mut self.legal_moves, MoveType::All);
 
                 // get data needed for converting algebraic move to Move data
-                let is_white = self.board.side_to_move() == Sides::WHITE;
-                let move_data = self.board.generate_move_data(&from, &to, is_white);
+                let side = self.board.side_to_move() == Sides::WHITE;
+                let move_data = self.board.generate_move_data(&from, &to, side);
+
                 // Check if move is legal
                 if self.legal_moves.moves.iter().any(|x| x.data == move_data) {
                     self.board.make_move(Move::new(move_data), &self.movegen);
@@ -121,13 +123,21 @@ impl Application for Editor {
                     println!("illegal move");
                 }
 
+                // Only if Engine is playing against humas and Only if it is not the players turn
                 if self.settings.game_mode == GameMode::PlayerEngine {
-                    if let Some(sender) = &self.engine_sender {
-                        if let Err(e) = sender.blocking_send(self.board.create_fen()) {
-                            eprintln!("Lost connection with the engine: {}", e);
+                    if !(self.settings.player_side as usize == self.board.side_to_move()) {
+                        if let Some(sender) = &self.engine_sender {
+                            if let Err(e) = sender.blocking_send(self.board.create_fen()) {
+                                eprintln!("Lost connection with the engine: {}", e);
+                            }
                         }
                     }
                 }
+
+                Command::none()
+            }
+            (_, Message::EngineMove(to)) => {
+                // Let engine make move
 
                 Command::none()
             }

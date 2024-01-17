@@ -4,6 +4,7 @@ pub struct UIConfig {
     pub flip_board: bool,
     pub search_depth: u32,
     pub game_mode: GameMode,
+    pub player_side: u32,
 }
 
 impl ::std::default::Default for UIConfig {
@@ -13,6 +14,7 @@ impl ::std::default::Default for UIConfig {
             flip_board: false,
             search_depth: 3,
             game_mode: GameMode::PlayerPlayer,
+            player_side: 0,
         }
     }
 }

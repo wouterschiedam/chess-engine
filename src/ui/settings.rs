@@ -18,6 +18,7 @@ pub struct SettingsTab {
     pub show_coords: bool,
     pub search_depth: u32,
     pub game_mode: GameMode,
+    pub player_side: u32,
 }
 
 impl SettingsTab {
@@ -27,6 +28,7 @@ impl SettingsTab {
             show_coords: true,
             search_depth: 3,
             game_mode: GameMode::PlayerPlayer,
+            player_side: 0,
         }
     }
 
@@ -40,6 +42,7 @@ impl SettingsTab {
                         self.show_coords,
                         self.search_depth,
                         self.game_mode,
+                        self.player_side,
                     ),
                     Message::ChangeSettings,
                 )
@@ -52,6 +55,7 @@ impl SettingsTab {
                         self.show_coords,
                         self.search_depth,
                         self.game_mode,
+                        self.player_side,
                     ),
                     Message::ChangeSettings,
                 )
@@ -64,6 +68,7 @@ impl SettingsTab {
                         self.show_coords,
                         self.search_depth,
                         self.game_mode,
+                        self.player_side,
                     ),
                     Message::ChangeSettings,
                 )
@@ -76,6 +81,7 @@ impl SettingsTab {
                         self.show_coords,
                         self.search_depth,
                         self.game_mode,
+                        self.player_side,
                     ),
                     Message::ChangeSettings,
                 )
@@ -88,12 +94,14 @@ impl SettingsTab {
         coords: bool,
         depth: u32,
         game_mode: GameMode,
+        side: u32,
     ) -> Option<UIConfig> {
         let mut config = UIConfig::default();
         config.flip_board = flip;
         config.show_coordinates = coords;
         config.search_depth = depth;
         config.game_mode = game_mode;
+        config.player_side = side;
         Some(config)
     }
 }

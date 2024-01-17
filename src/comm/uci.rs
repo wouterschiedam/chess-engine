@@ -140,7 +140,6 @@ impl Uci {
         // Create an incoming channel for the control thread.
         let (control_tx, control_rx) = crossbeam_channel::unbounded::<CommControl>();
 
-        // TODO: implement helper function for the board
         let t_board = Arc::clone(&board);
         // not sure why to add move
         let control_thread = thread::spawn(move || {

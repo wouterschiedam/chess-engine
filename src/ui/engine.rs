@@ -84,7 +84,7 @@ impl UIengine {
                                     stdin.flush().await.expect("Error flushing stdin");
                                 }
 
-                                let mut reader = BufReader::new(
+                                let reader = BufReader::new(
                                     process.stdout.as_mut().expect("Failed to get stdout"),
                                 );
 
@@ -105,7 +105,7 @@ impl UIengine {
                                         stdin.flush().await.expect("Error flushing stdin");
                                     }
 
-                                    let mut reader = BufReader::new(
+                                    let reader = BufReader::new(
                                         process.stdout.as_mut().expect("Failed to get stdout"),
                                     );
 
@@ -113,7 +113,7 @@ impl UIengine {
                                         read_setup_from_process(reader, &mut buffer_str).await;
 
                                     if readyok {
-                                        if let Some(mut stdin) = process.stdin.take() {
+                                        if let Some(stdin) = process.stdin.as_mut() {
                                             stdin
                                                 .write_all(
                                                     format!("position fen {} \n", pos).as_bytes(),
@@ -134,14 +134,12 @@ impl UIengine {
                                             receiver,
                                         );
 
-                                        println!("Engine started");
-
                                         continue;
                                     }
                                 }
 
                                 // Send quit command to engine
-                                if let Some(mut stdin) = process.stdin.take() {
+                                if let Some(stdin) = process.stdin.as_mut() {
                                     stdin
                                         .write_all(b"quit\n")
                                         .await
@@ -172,7 +170,7 @@ impl UIengine {
                                 if let Some(message) = message {
                                     if &message == "stop" || &message == "quit" {
                                         // Send quit command to engine
-                                        if let Some(mut stdin) = process.stdin.take() {
+                                        if let Some(stdin) = process.stdin.as_mut() {
                                             stdin
                                                 .write_all(b"quit\n")
                                                 .await
@@ -212,6 +210,7 @@ impl UIengine {
                                             + &String::from("\n");
 
                                         println!("Thinking: {}depth: {}", pos, limit);
+
                                         if let Some(stdin) = process.stdin.as_mut() {
                                             stdin
                                                 .write_all(pos.as_bytes())
@@ -233,24 +232,33 @@ impl UIengine {
                                 let mut eval: Option<KeyCode> = None;
                                 let mut bestmove: Option<KeyCode> = None;
 
-                                println!("Go fetch results");
 
                                 // Get results from search
                                 let reader = BufReader::new(
                                     process.stdout.as_mut().expect("Failed to get stdout"),
                                 );
-                                let mut buffer_str = String::new();
 
+                                let mut buffer_str = String::new();
                                 let response =
                                     match read_moves_from_process(reader, &mut buffer_str).await {
-                                        Ok(line) => line,
+                                        Ok(lines) => lines,
                                         Err(error) => {
                                             eprintln!("Error reading from stdin {}", error);
-                                            error.to_string()
+                                            vec![error.to_string()]
                                         }
                                     };
 
-                                println!("{}", response)
+                                let bestmove =
+                                    response[3].split_whitespace().collect::<Vec<&str>>()[1];
+
+                                // TODO: Send move to UI handle the move and play move!
+
+                                output
+                                    .try_send(Message::)
+                                    .await
+                                    .expect("Error on the mspc channel in the engine subscription");
+
+                                println!("{}", bestmove);
                             }
                             EngineState::TurnedOff => {
                                 tokio::time::sleep(std::time::Duration::from_millis(10)).await
@@ -297,7 +305,8 @@ pub async fn read_setup_from_process(
 pub async fn read_moves_from_process(
     mut reader: BufReader<&mut ChildStdout>,
     mut buffer_str: &mut String,
-) -> Result<String, Box<dyn Error>> {
+) -> Result<Vec<String>, Box<dyn Error>> {
+    let mut lines = Vec::new();
     loop {
         let read_line_result = async {
             reader
@@ -306,9 +315,14 @@ pub async fn read_moves_from_process(
                 .map(|_| buffer_str.clone())
         };
 
-        match time::timeout(Duration::from_millis(10000), read_line_result).await {
+        match time::timeout(Duration::from_millis(7000), read_line_result).await {
             Ok(Ok(line)) => {
-                return Ok(line);
+                buffer_str.clear();
+                if line.contains("bestmove") {
+                    lines.push(line);
+                    break;
+                }
+                lines.push(line);
             }
             Ok(Err(e)) => {
                 eprintln!("Error reading line: {:?}", e);
@@ -320,4 +334,6 @@ pub async fn read_moves_from_process(
             }
         }
     }
+
+    Ok(lines)
 }
