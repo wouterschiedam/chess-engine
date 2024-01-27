@@ -1,5 +1,5 @@
 use super::MoveGenerator;
-use crate::board::defs::{Files, BB_FILES, BB_SQUARES};
+use crate::board::defs::{Files, Ranks, BB_FILES, BB_RANKS, BB_SQUARES};
 use crate::movegen::magics::{Magic, BISHOP_MAGIC_NRS, ROOK_MAGIC_NRS};
 use crate::movegen::{defs::*, BISHOP_TABLE_SIZE, ROOK_TABLE_SIZE};
 use crate::{
@@ -10,73 +10,44 @@ use crate::{
 impl MoveGenerator {
     // King attacks table [square]
     pub fn init_king_attack(&mut self) {
-        for square in RangeOf::SQUARES {
-            let mut bitboard: u64 = 0;
-            let mut attacks: u64 = 0;
-            set_bit(&mut bitboard, square);
-
-            if (bitboard >> 8) != 0 {
-                attacks |= bitboard >> 8;
-            }
-            if (bitboard >> 9) & NOT_H_FILE != 0 {
-                attacks |= bitboard >> 9;
-            }
-            if (bitboard >> 7) & NOT_A_FILE != 0 {
-                attacks |= bitboard >> 7;
-            }
-            if (bitboard >> 1) & NOT_H_FILE != 0 {
-                attacks |= bitboard >> 1;
-            }
-            if (bitboard << 8) != 0 {
-                attacks |= bitboard << 8;
-            }
-            if (bitboard << 9) & NOT_A_FILE != 0 {
-                attacks |= bitboard << 9;
-            }
-            if (bitboard << 7) & NOT_H_FILE != 0 {
-                attacks |= bitboard << 7;
-            }
-            if (bitboard << 1) & NOT_A_FILE != 0 {
-                attacks |= bitboard << 1;
-            }
-
-            self.king[square] = attacks;
+        for sq in RangeOf::SQUARES {
+            let bb_square = BB_SQUARES[sq];
+            let bb_moves = (bb_square & !BB_FILES[Files::A] & !BB_RANKS[Ranks::R8]) << 7
+                | (bb_square & !BB_RANKS[Ranks::R8]) << 8
+                | (bb_square & !BB_FILES[Files::H] & !BB_RANKS[Ranks::R8]) << 9
+                | (bb_square & !BB_FILES[Files::H]) << 1
+                | (bb_square & !BB_FILES[Files::H] & !BB_RANKS[Ranks::R1]) >> 7
+                | (bb_square & !BB_RANKS[Ranks::R1]) >> 8
+                | (bb_square & !BB_FILES[Files::A] & !BB_RANKS[Ranks::R1]) >> 9
+                | (bb_square & !BB_FILES[Files::A]) >> 1;
+            self.king[sq] = bb_moves;
         }
     }
 
     // Knight attacks table [square]
     pub fn init_knight_attack(&mut self) {
-        for square in RangeOf::SQUARES {
-            let mut bitboard: u64 = 0;
-            let mut attacks: u64 = 0;
-            set_bit(&mut bitboard, square);
-
-            if ((bitboard >> 17) & NOT_H_FILE) != 0 {
-                attacks |= bitboard >> 17;
-            }
-            if ((bitboard >> 15) & NOT_A_FILE) != 0 {
-                attacks |= bitboard >> 15;
-            }
-            if ((bitboard >> 10) & NOT_HG_FILE) != 0 {
-                attacks |= bitboard >> 10;
-            }
-            if ((bitboard >> 6) & NOT_AB_FILE) != 0 {
-                attacks |= bitboard >> 6;
-            }
-            if ((bitboard << 17) & NOT_A_FILE) != 0 {
-                attacks |= bitboard << 17;
-            }
-            if ((bitboard << 15) & NOT_H_FILE) != 0 {
-                attacks |= bitboard << 15;
-            }
-            if ((bitboard << 10) & NOT_AB_FILE) != 0 {
-                attacks |= bitboard << 10;
-            }
-            if ((bitboard << 6) & NOT_HG_FILE) != 0 {
-                attacks |= bitboard << 6;
-            }
-
-            self.knight[square] = attacks;
+        for sq in RangeOf::SQUARES {
+            let bb_square = BB_SQUARES[sq];
+            let bb_moves = (bb_square
+                & !BB_RANKS[Ranks::R8]
+                & !BB_RANKS[Ranks::R7]
+                & !BB_FILES[Files::A])
+                << 15
+                | (bb_square & !BB_RANKS[Ranks::R8] & !BB_RANKS[Ranks::R7] & !BB_FILES[Files::H])
+                    << 17
+                | (bb_square & !BB_FILES[Files::A] & !BB_FILES[Files::B] & !BB_RANKS[Ranks::R8])
+                    << 6
+                | (bb_square & !BB_FILES[Files::G] & !BB_FILES[Files::H] & !BB_RANKS[Ranks::R8])
+                    << 10
+                | (bb_square & !BB_RANKS[Ranks::R1] & !BB_RANKS[Ranks::R2] & !BB_FILES[Files::A])
+                    >> 17
+                | (bb_square & !BB_RANKS[Ranks::R1] & !BB_RANKS[Ranks::R2] & !BB_FILES[Files::H])
+                    >> 15
+                | (bb_square & !BB_FILES[Files::A] & !BB_FILES[Files::B] & !BB_RANKS[Ranks::R1])
+                    >> 10
+                | (bb_square & !BB_FILES[Files::G] & !BB_FILES[Files::H] & !BB_RANKS[Ranks::R1])
+                    >> 6;
+            self.knight[sq] = bb_moves;
         }
     }
 

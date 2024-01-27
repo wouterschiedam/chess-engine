@@ -5,7 +5,7 @@ use std::mem;
 #[derive(Copy, Clone, Debug)]
 pub struct MoveList {
     pub moves: [Move; MAXLEGAL_MOVES as usize],
-    count: u8,
+    pub count: u8,
 }
 
 impl MoveList {

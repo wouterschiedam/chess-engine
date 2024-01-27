@@ -134,11 +134,10 @@ impl Board {
     pub fn unmake(&mut self) {
         self.gamestate = self.history.pop();
 
-        // Set "us" and "opponent"
+        // Set "player" and "opponent"
         let player = self.side_to_move();
         let opponent = player ^ 1;
 
-        // Dissect the move to undo
         let m = self.gamestate.next_move;
         let piece = m.piece();
         let from = m.from();
