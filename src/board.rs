@@ -228,6 +228,7 @@ impl Board {
         if !promotion {
             move_data |= Pieces::NONE << Shift::PROMOTION;
         } else {
+            // or add 4 promotion pieces
             PROMOTION_PIECES.iter().for_each(|piece| {
                 let promotion_piece = *piece << Shift::PROMOTION;
                 move_data = move_data | promotion_piece;

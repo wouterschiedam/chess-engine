@@ -64,7 +64,7 @@ impl MoveGenerator {
         self.piece(board, Pieces::ROOK, move_list, move_type);
         self.piece(board, Pieces::BISHOP, move_list, move_type);
         self.piece(board, Pieces::QUEEN, move_list, move_type);
-        self.pawn(board, move_list, move_type);
+        self.pawns(board, move_list, move_type);
         if move_type == MoveType::All || move_type == MoveType::Quiet {
             self.castling(board, move_list);
         }
@@ -101,6 +101,7 @@ impl MoveGenerator {
         self.pawns[side][square]
     }
 }
+
 // GET ACTUAL PSEUDO LEGAL MOVES!!!!
 impl MoveGenerator {
     pub fn piece(
@@ -118,7 +119,6 @@ impl MoveGenerator {
         let bb_opponent_pieces = board.bb_side[board.side_to_not_move()];
         let mut bb_pieces = board.get_pieces(piece, player);
         // Generate all moves for each piece
-
         while bb_pieces > 0 {
             let from = bits::next(&mut bb_pieces);
             let bb_target = match piece {
@@ -140,27 +140,27 @@ impl MoveGenerator {
         }
     }
 
-    pub fn pawn(&self, board: &Board, move_list: &mut MoveList, move_type: MoveType) {
+    pub fn pawns(&self, board: &Board, list: &mut MoveList, mt: MoveType) {
         const UP: i8 = 8;
         const DOWN: i8 = -8;
 
         // Create shorthand variables.
-        let player = board.side_to_move();
+        let us = board.side_to_move();
         let bb_opponent_pieces = board.bb_side[board.side_to_not_move()];
         let bb_empty = !board.occupancy();
-        let bb_fourth = BB_RANKS[Board::fourth_rank(player)];
-        let direction = if player == Sides::WHITE { UP } else { DOWN };
+        let bb_fourth = BB_RANKS[Board::fourth_rank(us)];
+        let direction = if us == Sides::WHITE { UP } else { DOWN };
         let rotation_count = (NrOf::SQUARES as i8 + direction) as u32;
-        let mut bb_pawns = board.get_pieces(Pieces::PAWN, player);
+        let mut bb_pawns = board.get_pieces(Pieces::PAWN, us);
 
         // As long as there are pawns, generate moves for each of them.
         while bb_pawns > 0 {
-            let from = next(&mut bb_pawns);
+            let from = bits::next(&mut bb_pawns);
             let to = (from as i8 + direction) as usize;
             let mut bb_moves = 0;
 
             // Generate pawn pushes
-            if move_type == MoveType::All || move_type == MoveType::Quiet {
+            if mt == MoveType::All || mt == MoveType::Quiet {
                 let bb_push = BB_SQUARES[to];
                 let bb_one_step = bb_push & bb_empty;
                 let bb_two_step = bb_one_step.rotate_left(rotation_count) & bb_empty & bb_fourth;
@@ -168,8 +168,8 @@ impl MoveGenerator {
             }
 
             // Generate pawn captures
-            if move_type == MoveType::All || move_type == MoveType::Capture {
-                let bb_targets = self.get_pawn_attacks(player, from);
+            if mt == MoveType::All || mt == MoveType::Capture {
+                let bb_targets = self.get_pawn_attacks(us, from);
                 let bb_captures = bb_targets & bb_opponent_pieces;
                 let bb_ep_capture = match board.gamestate.en_passant {
                     Some(ep) => bb_targets & BB_SQUARES[ep as usize],
@@ -178,7 +178,7 @@ impl MoveGenerator {
                 bb_moves |= bb_captures | bb_ep_capture;
             }
 
-            self.add_move(board, Pieces::PAWN, from, bb_moves, move_list);
+            self.add_move(board, Pieces::PAWN, from, bb_moves, list);
         }
     }
 
@@ -296,27 +296,21 @@ impl MoveGenerator {
 
             // Simulate the move on a temporary board
             let mut cloned = board.clone();
-            cloned.remove_piece(player, piece, from);
-            cloned.put_piece(player, piece, to_square);
-
-            // Check if the king is attacked after the move
-            let bb_king = cloned.king_square(player);
-            if self.square_attacked(&cloned, cloned.side_to_not_move(), bb_king) {
-                // Moving the piece puts the own king in check, skip this move
-                std::mem::drop(cloned);
-                continue;
-            }
-            std::mem::drop(cloned);
 
             if !promotion {
                 move_data |= Pieces::NONE << Shift::PROMOTION;
-                move_list.push(Move::new(move_data));
+                if cloned.make_move(Move::new(move_data), &self) {
+                    move_list.push(Move::new(move_data));
+                }
             } else {
                 PROMOTION_PIECES.iter().for_each(|piece| {
                     let promotion_piece = *piece << Shift::PROMOTION;
-                    move_list.push(Move::new(move_data | promotion_piece));
+                    if cloned.make_move(Move::new(move_data), &self) {
+                        move_list.push(Move::new(move_data | promotion_piece));
+                    }
                 });
             }
+            std::mem::drop(cloned);
         }
     }
 }
@@ -366,12 +360,12 @@ mod tests {
     #[test]
     fn depth_nodes() {
         let positions = vec![
-            "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
-            "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1",
-            "8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - 0 1",
-            // "r3k2r/Pppp1ppp/1b3nbN/nP6/BBP1P3/q4N2/Pp1P2PP/R2Q1RK1 w kq - 0 1",
-            // "rnbq1k1r/pp1Pbppp/2p5/8/2B5/8/PPP1NnPP/RNBQK2R w KQ - 1 8",
-            // "r4rk1/1pp1qppp/p1np1n2/2b1p1B1/2B1P1b1/P1NP1N2/1PP1QPPP/R4RK1 w - - 0 10",
+            //"rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", // -> depth 5 OK
+            "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1", // -> not OK
+                                                                                    //"8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - 0 1", // -> dpeth 6 not OK
+                                                                                    //"r3k2r/Pppp1ppp/1b3nbN/nP6/BBP1P3/q4N2/Pp1P2PP/R2Q1RK1 w kq - 0 1", //-> not Ok to much
+                                                                                    //"rnbq1k1r/pp1Pbppp/2p5/8/2B5/8/PPP1NnPP/RNBQK2R w KQ - 1 8",
+                                                                                    // "r4rk1/1pp1qppp/p1np1n2/2b1p1B1/2B1P1b1/P1NP1N2/1PP1QPPP/R4RK1 w - - 0 10",
         ];
 
         for position in positions {
@@ -383,7 +377,7 @@ mod tests {
 
             let mut total_nodes: i32 = 0;
 
-            let depth = 1;
+            let depth = 2;
 
             let mut perft_result: HashMap<String, i32> = Default::default();
 
@@ -402,17 +396,17 @@ mod tests {
                 }
             });
 
-            // let mut sorted_vec: Vec<_> = perft_result.into_iter().collect();
+            let mut sorted_vec: Vec<_> = perft_result.into_iter().collect();
 
             // Sort the vector based on the keys
-            // sorted_vec.sort_by(|a, b| a.0.cmp(&b.0));
+            sorted_vec.sort_by(|a, b| a.0.cmp(&b.0));
 
-            // // Iterate over the sorted vector
-            // for (key, value) in sorted_vec {
-            //     println!("{}: {}", key, value);
-            // }
+            // Iterate over the sorted vector
+            for (key, value) in sorted_vec {
+                println!("{}: {}", key, value);
+            }
 
-            println!("Position: {}\n", position);
+            println!("\nPosition: {}\n", position);
 
             println!(
                 "Depth: {} ply     Result: {} nodes    Time: {:?} milliseconds\n",
@@ -426,39 +420,42 @@ mod tests {
             );
         }
     }
-}
 
-fn measure_time<F: FnOnce()>(function: F) -> Duration {
-    let start_time = Instant::now();
-    function();
-    let end_time = Instant::now();
-    end_time - start_time
-}
-
-fn perft_results(
-    depth: u8,
-    board: &mut Board,
-    move_generator: &MoveGenerator,
-    current_move: &str,
-) -> i32 {
-    if depth == 0 {
-        return 1;
+    // Test helper classes //
+    fn measure_time<F: FnOnce()>(function: F) -> Duration {
+        let start_time = Instant::now();
+        function();
+        let end_time = Instant::now();
+        end_time - start_time
     }
 
-    let mut move_list = MoveList::new();
-    let _ = move_generator.generate_moves(&board, &mut move_list, MoveType::All);
+    fn perft_results(
+        depth: u8,
+        board: &mut Board,
+        move_generator: &MoveGenerator,
+        current_move: &str,
+    ) -> i32 {
+        if depth == 0 {
+            return 1;
+        }
 
-    let mut total_nodes = 0;
+        let mut move_list = MoveList::new();
+        let _ = move_generator.generate_moves(&board, &mut move_list, MoveType::All);
 
-    for mov in move_list.moves.iter() {
-        if mov.data > 0 {
-            if board.make_move(*mov, move_generator) {
-                let nodes = perft_results(depth - 1, board, &move_generator, current_move);
-                total_nodes += nodes;
-                board.unmake();
+        let mut total_nodes = 0;
+
+        for mov in move_list.moves.iter() {
+            if mov.data > 0 {
+                if board.make_move(*mov, move_generator) {
+                    let nodes = perft_results(depth - 1, board, &move_generator, current_move);
+                    total_nodes += nodes;
+                    board.unmake();
+                }
             }
         }
-    }
 
-    total_nodes
+        total_nodes
+    }
 }
+
+/* Move list contains al moves, however nodes per move aren't correct */

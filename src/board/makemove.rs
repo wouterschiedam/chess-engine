@@ -52,7 +52,7 @@ impl Board {
         let double_push = m.double_push();
         let en_passant = m.en_passant();
 
-        let _is_promotion = promoted != Pieces::NONE;
+        let is_promotion = promoted != Pieces::NONE;
         let is_capture = captured != Pieces::NONE;
         let castling_perm = self.gamestate.castling > 0;
         // Base form not a pawn moves
@@ -79,7 +79,7 @@ impl Board {
         } else {
             // it is a pawn move also check for promotion and reset halfclock_move
             self.remove_piece(player, piece, from);
-            self.put_piece(player, piece, to);
+            self.put_piece(player, if !is_promotion { piece } else { promoted }, to);
             self.gamestate.halfclock_move = 0;
 
             // if en_passant remove opponent piece
