@@ -1,4 +1,9 @@
-use crate::movegen::defs::{movelist, Move, MoveList, MoveType, ShortMove};
+use crate::{
+    board::defs::Pieces,
+    engine::transposition::{HashFlag, SearchData},
+    movegen::defs::{movelist, Move, MoveList, MoveType, ShortMove},
+    search::defs::SearchTerminate,
+};
 use std::time::Duration;
 
 use super::{
@@ -14,28 +19,29 @@ impl Search {
         possible_moves: &mut Vec<Move>,
         refs: &mut SearchRefs,
     ) -> i16 {
-        // Define a node limit and time limit for early termination
-        const NODE_LIMIT: usize = 1000000; // Example node limit
-        const TIME_LIMIT: Duration = Duration::from_secs(10); // Example time limit
+        let quiet = refs.search_params.quiet; // If quiet, don't send intermediate stats.
+        let is_root = refs.search_info.ply == 0; // At root if no moves were played.
+        let mut pvs = false; // Used for PVS (Principal Variation Search)
 
-        // Check if the node limit or time limit has been reached
-        if refs.search_info.nodes > NODE_LIMIT
-        // || refs.search_info.start_time.elapsed() > TIME_LIMIT
-        {
-            return 0; // Early termination value (could be adjusted based on context)
+        // Check if termination condition is met
+        if refs.search_info.nodes & CHECK_TERMINATION == 0 {
+            Search::check_termination(refs);
         }
 
-        // Principal variation search flag
-        let mut pvs = false;
+        // If time is up, abort. This depth won't be considered in
+        // iterative deepening as it is unfinished.
+        if refs.search_info.terminated != SearchTerminate::Nothing {
+            return 0;
+        }
 
-        // Check if we are in check
+        // Determine if we are in check.
         let is_check = refs.move_generator.square_attacked(
             refs.board,
             refs.board.side_to_not_move(),
             refs.board.king_square(refs.board.side_to_move()),
         );
 
-        // Increase depth if in check
+        // If so, extend search depth by 1
         if is_check {
             depth += 1;
         }
@@ -48,15 +54,47 @@ impl Search {
         // Increment node count
         refs.search_info.nodes += 1;
 
+        // Variables to hold TT value and move if any.
+        let mut tt_value: Option<i16> = None;
+        let mut tt_move: ShortMove = ShortMove::new(0);
+
+        // Probe the TT for information.
+        if refs.tt_enabled {
+            if let Some(data) = refs
+                .tt
+                .lock()
+                .expect("Error locking TT")
+                .probe(refs.board.gamestate.zobrist_key)
+            {
+                let tt_result = data.get(depth, refs.search_info.ply, alpha, beta);
+                tt_value = tt_result.0;
+                tt_move = tt_result.1;
+            }
+        }
+
+        // If we have a value from the TT, then return immediately.
+        if let Some(v) = tt_value {
+            if !is_root {
+                return v;
+            }
+        }
+
         // Generate and score moves
+        let mut legal_moves = 0;
         let mut move_list = MoveList::new();
         refs.move_generator
             .generate_moves(&refs.board, &mut move_list, MoveType::All);
-        Search::score_moves(&mut move_list, ShortMove::new(0), refs);
 
+        Search::score_moves(&mut move_list, tt_move, refs);
+
+        // Set init best eval_score
         let mut best_eval_score = -INF;
+
+        // Set init hash value  assuming we do not beat alpha
+        let mut hash_flag = HashFlag::Alpha;
+
+        // Holds the best move in the loop
         let mut best_possible_move = ShortMove::new(0);
-        let mut legal_moves = 0;
 
         for x in 0..move_list.len() {
             Search::swap_move(&mut move_list, x);
@@ -70,13 +108,20 @@ impl Search {
             refs.search_info.ply += 1;
 
             let mut node_pv = Vec::new();
-            let mut eval_score;
+            let mut eval_score = DRAW;
+
+            if refs.search_info.ply > refs.search_info.seldepth {
+                refs.search_info.seldepth = refs.search_info.ply;
+            }
 
             // Perform alpha-beta search
             if !Search::is_draw(refs) {
+                // Try pvs if possible
                 if pvs {
                     eval_score =
                         -Search::alpha_beta(depth - 1, -alpha - 1, -alpha, &mut node_pv, refs);
+
+                    // Failed pvs?
                     if eval_score > alpha && eval_score < beta {
                         eval_score =
                             -Search::alpha_beta(depth - 1, -beta, -alpha, &mut node_pv, refs);
@@ -84,8 +129,6 @@ impl Search {
                 } else {
                     eval_score = -Search::alpha_beta(depth - 1, -beta, -alpha, &mut node_pv, refs);
                 }
-            } else {
-                eval_score = 0;
             }
 
             refs.board.unmake();
@@ -97,27 +140,71 @@ impl Search {
                 best_possible_move = current_move.to_short_move();
             }
 
+            // Beta cutoff: this move is so good for our opponent, that we
+            // do not search any further. Insert into TT and return beta.
+            if eval_score >= beta {
+                refs.tt.lock().expect("Error locking TT").insert(
+                    refs.board.gamestate.zobrist_key,
+                    SearchData::create(
+                        depth,
+                        refs.search_info.ply,
+                        HashFlag::Beta,
+                        beta,
+                        best_possible_move,
+                    ),
+                );
+
+                // If the move is not a capture but still causes a
+                // beta-cutoff, then store it as a killer move and update
+                // the history heuristics.
+                if current_move.captured() == Pieces::NONE {
+                    Search::store_killer_move(current_move, refs);
+                    // Search::update_history_heuristic(current_move, depth, refs);
+                }
+
+                return beta;
+            }
+
             if eval_score > alpha {
+                // Save our better eval in alpha
                 alpha = eval_score;
+
+                hash_flag = HashFlag::Exact;
+
                 pvs = true;
                 possible_moves.clear();
                 possible_moves.push(current_move);
                 possible_moves.append(&mut node_pv);
             }
 
-            if alpha >= beta {
-                break;
-            }
+            // if alpha >= beta {
+            //     break;
+            // }
         }
 
         // Check for checkmate or stalemate
         if legal_moves == 0 {
             return if is_check {
+                // The return value is minus CHECKMATE, because if we have
+                // no legal moves and are in check, it's game over.
                 -CHECKMATE + (refs.search_info.ply as i16)
             } else {
                 -STALEMATE
             };
         }
+
+        // We save the best move we found for us; with an ALPHA flag if we
+        // didn't improve alpha, or EXACT if we did raise alpha.
+        refs.tt.lock().expect("Failed locking tt table").insert(
+            refs.board.gamestate.zobrist_key,
+            SearchData::create(
+                depth,
+                refs.search_info.ply,
+                hash_flag,
+                alpha,
+                best_possible_move,
+            ),
+        );
 
         alpha
     }

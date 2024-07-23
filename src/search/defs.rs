@@ -1,9 +1,15 @@
-use std::{sync::Arc, time::Instant};
+use std::{
+    sync::{Arc, Mutex},
+    time::Instant,
+};
 
 use crate::{
     board::Board,
     defs::MAX_PLY,
-    engine::defs::Information,
+    engine::{
+        defs::Information,
+        transposition::{SearchData, TT},
+    },
     movegen::{
         defs::{Move, ShortMove},
         MoveGenerator,
@@ -119,6 +125,9 @@ pub struct SearchInfo {
     pub nodes: usize,
     pub ply: i8,
     pub killer_moves: KillerMoves,
+    pub last_stats_sent: u128,     // When last stats update was sent
+    pub last_curr_move_sent: u128, // When last current move was sent
+    pub allocated_time: u128,      // Allotted msecs to spend on move
     pub terminated: SearchTerminate,
 }
 
@@ -131,6 +140,9 @@ impl SearchInfo {
             nodes: 0,
             ply: 0,
             killer_moves: [[ShortMove::new(0); MAX_KILLER_MOVES]; MAX_PLY as usize],
+            last_stats_sent: 0,
+            last_curr_move_sent: 0,
+            allocated_time: 0,
             terminated: SearchTerminate::Nothing,
         }
     }
@@ -222,6 +234,8 @@ pub struct SearchRefs<'a> {
     pub search_params: &'a mut SearchParams,
     pub control_rx: &'a Receiver<SearchControl>,
     pub report_tx: &'a Sender<Information>,
+    pub tt_enabled: bool,
+    pub tt: &'a Arc<Mutex<TT<SearchData>>>,
 }
 
 // This struct holds all the reports a search can send to the engine.

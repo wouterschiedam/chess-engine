@@ -5,7 +5,15 @@ use std::{
 
 use crossbeam_channel::Sender;
 
-use crate::{board::Board, engine::defs::Information, extra::print, movegen::MoveGenerator};
+use crate::{
+    board::Board,
+    engine::{
+        defs::Information,
+        transposition::{SearchData, TT},
+    },
+    extra::print,
+    movegen::MoveGenerator,
+};
 
 use self::defs::{
     SearchControl, SearchInfo, SearchParams, SearchRefs, SearchReport, SearchTerminate,
@@ -17,6 +25,8 @@ pub mod defs;
 mod helpers;
 pub mod search_routine;
 mod sorting;
+pub mod time;
+pub mod utils;
 
 pub struct Search {
     handle: Option<JoinHandle<()>>,
@@ -36,6 +46,8 @@ impl Search {
         report_tx: Sender<Information>, // Used to send information to engine.
         board: Arc<Mutex<Board>>,       // Arc pointer to engine's board.
         mg: Arc<MoveGenerator>,         // Arc pointer to engine's move generator.
+        tt: Arc<Mutex<TT<SearchData>>>,
+        tt_enabled: bool,
     ) {
         // Set up a channel for incoming commands
         let (control_tx, control_rx) = crossbeam_channel::unbounded::<SearchControl>();
@@ -48,6 +60,7 @@ impl Search {
             // Create thread-local variables.
             let arc_board = Arc::clone(&board);
             let arc_mg = Arc::clone(&mg);
+            let arc_tt = Arc::clone(&tt);
             // let arc_tt = Arc::clone(&tt);
             let mut search_params = SearchParams::new();
 
@@ -84,6 +97,8 @@ impl Search {
                     let mut search_refs = SearchRefs {
                         board: &mut board,
                         move_generator: &arc_mg,
+                        tt: &arc_tt,
+                        tt_enabled,
                         search_info: &mut search_info,
                         search_params: &mut search_params,
                         control_rx: &control_rx,

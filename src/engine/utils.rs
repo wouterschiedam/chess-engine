@@ -32,6 +32,8 @@ impl Engine {
             info_sender.clone(),
             Arc::clone(&self.board),
             Arc::clone(&self.movegen),
+            Arc::clone(&self.tt_search),
+            self.settings.tt_size > 0,
         );
         // update Comm interface
         self.comm.send(CommControl::Update);

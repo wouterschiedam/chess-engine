@@ -10,6 +10,7 @@ use crate::{
     board::Board,
     defs::{About, FEN_START_POSITION},
     engine::defs::{EngineOption, EngineOptionName, Information},
+    evaluation::evaluate_position,
     extra::print,
     movegen::defs::{print_bitboard, Move},
     search::defs::{
@@ -155,7 +156,7 @@ impl Uci {
                     }
                     CommControl::Ready => println!("readyok"),
                     CommControl::Quit => quit = true,
-                    CommControl::SearchSummary(summary) => Self::search_summary(&summary),
+                    CommControl::SearchSummary(summary) => Self::search_summary(&summary, &t_board),
                     CommControl::SearchStats(stats) => Self::search_stats(&stats),
                     CommControl::SearchCurrMove(current) => Self::search_current_move(&current),
                     CommControl::InfoString(info) => Self::info_string(&info),
@@ -308,7 +309,7 @@ impl Uci {
     //     CommReport::Uci(UciReport::SetOption())
     // }
 
-    fn search_summary(summary: &SearchSummary) {
+    fn search_summary(summary: &SearchSummary, board: &Arc<Mutex<Board>>) {
         // Check for checkmate
         let score = if (summary.cp.abs() >= CHECKMATE_THRESHOLD) && (summary.cp.abs() < CHECKMATE) {
             // number of plays left to mate
@@ -346,9 +347,11 @@ impl Uci {
 
         let pv = summary.pv_as_string();
 
+        let eval = evaluate_position(&board.lock().expect("Error locking board"));
+
         let info = format!(
-            "info score {} {} time {} nodes {} nps {} pv {}",
-            score, depth, summary.time, summary.nodes, summary.nps, pv,
+            "info score {} {} time {} nodes {} nps {} pv {} eval {}",
+            score, depth, summary.time, summary.nodes, summary.nps, pv, eval
         );
 
         println!("{info}");

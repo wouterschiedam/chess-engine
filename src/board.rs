@@ -27,7 +27,7 @@ mod gamestate;
 mod history;
 mod makemove;
 mod utils;
-mod zobrist;
+pub mod zobrist;
 #[derive(Clone, Debug)]
 pub struct Board {
     pub bb_pieces: [[Bitboard; NrOf::PIECE_TYPES]; Sides::BOTH],

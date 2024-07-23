@@ -9,26 +9,28 @@ pub mod material;
 pub mod psqt;
 
 pub fn evaluate_position(board: &Board) -> i16 {
-    const PAWN_VALUE: i16 = PIECE_VALUES[Pieces::PAWN] as i16;
-
+    const KING_ONLY: i16 = 300; // PSQT-points
     let side = board.gamestate.active_color as usize;
+    let w_psqt = board.gamestate.psqt[Sides::WHITE];
+    let b_psqt = board.gamestate.psqt[Sides::BLACK];
+    let mut value = w_psqt - b_psqt;
 
-    let w_material = board.gamestate.material[Sides::WHITE] as i16;
-    let b_material = board.gamestate.material[Sides::BLACK] as i16;
-
-    // base evaluation
-    let mut eval = w_material - b_material;
-
-    eval += board.gamestate.psqt[Sides::WHITE] - board.gamestate.psqt[Sides::BLACK];
-
-    if w_material < PAWN_VALUE || b_material < PAWN_VALUE {
+    // If one of the sides is down to a bare king, apply the KING_EDGE PSQT
+    // to drive that king to the edge and mate it.
+    if w_psqt < KING_ONLY || b_psqt < KING_ONLY {
         let w_king_edge = KING_EDGE[board.king_square(Sides::WHITE)] as i16;
         let b_king_edge = KING_EDGE[board.king_square(Sides::BLACK)] as i16;
-
-        eval += w_king_edge - b_king_edge;
+        value += w_king_edge - b_king_edge;
     }
 
-    eval = if side == Sides::WHITE { -eval } else { eval };
+    // This function calculates the evaluation from white's point of view:
+    // a positive value means "white is better", a negative value means
+    // "black is better". Alpha/Beta requires the value returned from the
+    // viewpoint of the side that is being evaluated. Therefore if it is
+    // black to move, the value must first be flipped to black's viewpoint
+    // before it can be returned.
 
-    eval
+    value = if side == Sides::BLACK { -value } else { value };
+
+    value
 }

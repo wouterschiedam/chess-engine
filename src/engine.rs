@@ -2,6 +2,7 @@ pub mod about;
 pub mod comm_report;
 pub mod defs;
 pub mod search_report;
+pub mod transposition;
 pub mod utils;
 use std::sync::{Arc, Mutex};
 
@@ -17,6 +18,7 @@ use crate::{
     },
 };
 use crossbeam_channel::Receiver;
+use transposition::{PerftData, SearchData, TT};
 
 use self::defs::{EngineOptionDefaults, Information, Settings};
 
@@ -25,7 +27,9 @@ pub struct Engine {
     cmdline: Cmdline, // Command line interpreter.
     settings: Settings,
     board: Arc<Mutex<Board>>,
-    pub comm: Box<dyn IComm>, // Communications (active).
+    pub comm: Box<dyn IComm>,              // Communications (active).
+    tt_perft: Arc<Mutex<TT<PerftData>>>,   // TT for running perft.
+    tt_search: Arc<Mutex<TT<SearchData>>>, // TT for search information.
     movegen: Arc<MoveGenerator>,
     search: Search,
     pub info_receiver: Option<Receiver<Information>>, // Receiver for incoming information.
@@ -50,6 +54,11 @@ impl Engine {
             EngineOptionDefaults::HASH_MAX_32_BIT
         };
 
+        let tt_perft: Arc<Mutex<TT<PerftData>>>;
+        let tt_search: Arc<Mutex<TT<SearchData>>>;
+        tt_perft = Arc::new(Mutex::new(TT::<PerftData>::new(0)));
+        tt_search = Arc::new(Mutex::new(TT::<SearchData>::new(tt_size)));
+
         Self {
             quit: false,
             settings: Settings {
@@ -57,6 +66,8 @@ impl Engine {
                 quiet,
                 tt_size,
             },
+            tt_perft,
+            tt_search,
             comm,
             cmdline,
             board: Arc::new(Mutex::new(Board::new())),
