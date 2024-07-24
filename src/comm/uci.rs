@@ -8,7 +8,7 @@ use crossbeam_channel::Sender;
 
 use crate::{
     board::Board,
-    defs::{About, FEN_START_POSITION},
+    defs::{About, Sides, FEN_START_POSITION},
     engine::defs::{EngineOption, EngineOptionName, Information},
     evaluation::evaluate_position,
     extra::print,
@@ -347,11 +347,16 @@ impl Uci {
 
         let pv = summary.pv_as_string();
 
-        let eval = evaluate_position(&board.lock().expect("Error locking board"));
+        let board_lock = board.lock().expect("Error locking board");
+        let eval = evaluate_position(&board_lock);
+        let w_psqt = &board_lock.gamestate.psqt[Sides::WHITE];
+        let b_psqt = &board_lock.gamestate.psqt[Sides::BLACK];
+        let w_material = &board_lock.gamestate.material[Sides::WHITE];
+        let b_material = &board_lock.gamestate.material[Sides::BLACK];
 
         let info = format!(
-            "info score {} {} time {} nodes {} nps {} pv {} eval {}",
-            score, depth, summary.time, summary.nodes, summary.nps, pv, eval
+            "info score {} {} time {} nodes {} nps {} pv {} eval {} w_psqt {} b_psqt {} w_material {} b_material {}",
+            score, depth, summary.time, summary.nodes, summary.nps, pv, eval, w_psqt, b_psqt, w_material, b_material
         );
 
         println!("{info}");

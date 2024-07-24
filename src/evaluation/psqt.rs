@@ -1,5 +1,5 @@
 use crate::{
-    board::Board,
+    board::{defs::Pieces, Board},
     defs::{NrOf, Sides, Square},
     extra::bits,
 };
@@ -160,3 +160,4 @@ pub fn apply(board: &Board) -> (i16, i16) {
 
     (w_psqt, b_psqt)
 }
+

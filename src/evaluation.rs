@@ -11,9 +11,16 @@ pub mod psqt;
 pub fn evaluate_position(board: &Board) -> i16 {
     const KING_ONLY: i16 = 300; // PSQT-points
     let side = board.gamestate.active_color as usize;
+
     let w_psqt = board.gamestate.psqt[Sides::WHITE];
     let b_psqt = board.gamestate.psqt[Sides::BLACK];
+
     let mut value = w_psqt - b_psqt;
+
+    let w_material = board.gamestate.material[Sides::WHITE];
+    let b_material = board.gamestate.material[Sides::BLACK];
+
+    value += w_material as i16 - b_material as i16;
 
     // If one of the sides is down to a bare king, apply the KING_EDGE PSQT
     // to drive that king to the edge and mate it.
