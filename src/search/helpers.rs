@@ -3,7 +3,13 @@ use crate::{
     defs::{Sides, MAX_MOVE_RULE},
 };
 
+use std::collections::HashMap;
+use std::fs::File;
+use std::io::{BufRead, BufReader};
+
 use super::{defs::SearchRefs, Search};
+
+pub type MoveBook = HashMap<String, Vec<(String, u32)>>;
 
 impl Search {
     pub fn is_draw(refs: &SearchRefs) -> bool {
@@ -47,6 +53,30 @@ impl Search {
         //     nps = 1;
         // }
         nps
+    }
+
+    pub fn load_book(filename: &str) -> MoveBook {
+        let mut book = MoveBook::new();
+        let file = File::open(filename).expect("Failed to open book file");
+        let reader = BufReader::new(file);
+        let mut current_pos = String::new();
+
+        for line in reader.lines() {
+            let line = line.expect("Failed to read line");
+            if line.starts_with("pos ") {
+                current_pos = line[4..].to_string();
+            } else {
+                let parts: Vec<&str> = line.split_whitespace().collect();
+                if parts.len() == 2 {
+                    let mv = parts[0].to_string();
+                    let weight: u32 = parts[1].parse().expect("Invalid weight");
+                    book.entry(current_pos.clone())
+                        .or_insert_with(Vec::new)
+                        .push((mv, weight));
+                }
+            }
+        }
+        book
     }
 }
 

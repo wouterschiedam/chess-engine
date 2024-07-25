@@ -16,6 +16,8 @@ use crate::{
     },
 };
 use crossbeam_channel::{Receiver, Sender};
+
+use super::helpers::MoveBook;
 // Some const for searching
 pub const INF: i16 = 25_000;
 pub const CHECKMATE: i16 = 24_000;
@@ -236,6 +238,7 @@ pub struct SearchRefs<'a> {
     pub report_tx: &'a Sender<Information>,
     pub tt_enabled: bool,
     pub tt: &'a Arc<Mutex<TT<SearchData>>>,
+    pub book: &'a MoveBook,
 }
 
 // This struct holds all the reports a search can send to the engine.

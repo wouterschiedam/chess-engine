@@ -10,7 +10,7 @@ use crate::{
     board::Board,
     defs::{About, Sides, FEN_START_POSITION},
     engine::defs::{EngineOption, EngineOptionName, Information},
-    evaluation::evaluate_position,
+    evaluation::{evaluate_position, material::count},
     extra::print,
     movegen::defs::{print_bitboard, Move},
     search::defs::{
@@ -351,8 +351,8 @@ impl Uci {
         let eval = evaluate_position(&board_lock);
         let w_psqt = &board_lock.gamestate.psqt[Sides::WHITE];
         let b_psqt = &board_lock.gamestate.psqt[Sides::BLACK];
-        let w_material = &board_lock.gamestate.material[Sides::WHITE];
-        let b_material = &board_lock.gamestate.material[Sides::BLACK];
+
+        let (w_material, b_material) = count(&board_lock);
 
         let info = format!(
             "info score {} {} time {} nodes {} nps {} pv {} eval {} w_psqt {} b_psqt {} w_material {} b_material {}",

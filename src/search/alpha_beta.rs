@@ -1,6 +1,13 @@
+use rand::seq::SliceRandom;
+use rand::thread_rng;
+
 use crate::{
-    board::defs::Pieces,
-    engine::transposition::{HashFlag, SearchData},
+    board::{defs::Pieces, Board},
+    engine::{
+        transposition::{HashFlag, SearchData},
+        Engine,
+    },
+    extra::parse::{algebraic_move_to_number, algebraic_square_to_number},
     movegen::defs::{movelist, Move, MoveList, MoveType, ShortMove},
     search::defs::SearchTerminate,
 };
@@ -84,6 +91,64 @@ impl Search {
         let mut move_list = MoveList::new();
         refs.move_generator
             .generate_moves(&refs.board, &mut move_list, MoveType::All);
+
+        // Check the book for the current position
+        // Normalize the FEN string
+        // Create valid move from "a2a4" -> to MoveData store it in possible_moves and return
+        let fen = Board::normalize_fen(&refs.board.create_fen()).to_string();
+        if let Some(book_moves) = refs.book.get(&fen) {
+            if !book_moves.is_empty() {
+                possible_moves.clear();
+
+                // Pick a random move if it's the first move
+                if is_root {
+                    let mut rng = thread_rng();
+                    let random_move = book_moves.choose(&mut rng).expect("No book moves found");
+                    if let Ok(parsed_move) = algebraic_move_to_number(&random_move.0) {
+                        let mut result: Result<Move, ()> = Err(());
+
+                        for i in 0..move_list.len() {
+                            let current = move_list.get_move(i);
+                            if parsed_move.0 == current.from()
+                                && parsed_move.1 == current.to()
+                                && parsed_move.2 == current.promoted()
+                            {
+                                result = Ok(current);
+                                break;
+                            }
+                        }
+
+                        if let Ok(ips) = result {
+                            possible_moves.push(ips);
+                            return 0;
+                        }
+                    }
+                } else {
+                    // If not the first move, pick the first move from the book
+                    if let Ok(parsed_move) = algebraic_move_to_number(&book_moves[0].0) {
+                        let mut result: Result<Move, ()> = Err(());
+
+                        for i in 0..move_list.len() {
+                            let current = move_list.get_move(i);
+                            if parsed_move.0 == current.from()
+                                && parsed_move.1 == current.to()
+                                && parsed_move.2 == current.promoted()
+                            {
+                                result = Ok(current);
+                                break;
+                            }
+                        }
+
+                        if let Ok(ips) = result {
+                            possible_moves.push(ips);
+                            return 0;
+                        }
+                    }
+                }
+            }
+        } else {
+            println!("No book moves found for FEN: {}", fen);
+        }
 
         Search::score_moves(&mut move_list, tt_move, refs);
 

@@ -22,6 +22,7 @@ impl Search {
         while (depth <= MAX_PLY) && (depth <= refs.search_params.depth) && !stop {
             // set current depth
             refs.search_info.depth = depth;
+
             // get eval for position
             let eval = Search::alpha_beta(depth, alpha, beta, &mut root_pv, refs);
 

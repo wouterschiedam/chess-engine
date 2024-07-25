@@ -103,6 +103,9 @@ impl Search {
                         search_params: &mut search_params,
                         control_rx: &control_rx,
                         report_tx: &t_report_tx,
+                        book: &Search::load_book(
+                            "/Users/wouter/personal/rust/chess-engine/book.txt",
+                        ),
                     };
                     // Start the search using Iterative Deepening.
                     let (best_move, terminate) = Search::search_routine(&mut search_refs);
