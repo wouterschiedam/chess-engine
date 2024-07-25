@@ -26,9 +26,6 @@ pub fn evaluate_position(board: &Board) -> i16 {
 
     let (w_material, b_material) = count(board);
 
-    println!("{}", w_material);
-    println!("{}", b_material);
-
     value += w_material as i16 - b_material as i16;
 
     // If one of the sides is down to a bare king, apply the KING_EDGE PSQT

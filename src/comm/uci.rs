@@ -311,7 +311,8 @@ impl Uci {
 
     fn search_summary(summary: &SearchSummary, board: &Arc<Mutex<Board>>) {
         // Check for checkmate
-        let score = if (summary.cp.abs() >= CHECKMATE_THRESHOLD) && (summary.cp.abs() < CHECKMATE) {
+        let score = if (summary.cp.abs() >= CHECKMATE_THRESHOLD) && (summary.cp.abs() <= CHECKMATE)
+        {
             // number of plays left to mate
             let plays = CHECKMATE - summary.cp.abs();
 
