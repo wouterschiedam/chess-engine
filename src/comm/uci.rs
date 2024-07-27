@@ -13,8 +13,12 @@ use crate::{
     evaluation::{evaluate_position, material::count},
     extra::print,
     movegen::defs::{print_bitboard, Move},
-    search::defs::{
-        GameTime, SearchCurrentMove, SearchStats, SearchSummary, CHECKMATE, CHECKMATE_THRESHOLD,
+    search::{
+        defs::{
+            GameTime, SearchCurrentMove, SearchStats, SearchSummary, CHECKMATE,
+            CHECKMATE_THRESHOLD, DRAW, INF,
+        },
+        Search,
     },
 };
 
@@ -311,8 +315,9 @@ impl Uci {
 
     fn search_summary(summary: &SearchSummary, board: &Arc<Mutex<Board>>) {
         // Check for checkmate
-        let score = if (summary.cp.abs() >= CHECKMATE_THRESHOLD) && (summary.cp.abs() <= CHECKMATE)
-        {
+        let score = if summary.cp == -INF {
+            format!("draw")
+        } else if (summary.cp.abs() >= CHECKMATE_THRESHOLD) && (summary.cp.abs() <= CHECKMATE) {
             // number of plays left to mate
             let plays = CHECKMATE - summary.cp.abs();
 

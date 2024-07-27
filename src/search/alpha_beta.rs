@@ -194,7 +194,13 @@ impl Search {
                 } else {
                     eval_score = -Search::alpha_beta(depth - 1, -beta, -alpha, &mut node_pv, refs);
                 }
+            } else {
+                return -INF;
             }
+
+            // if Search::is_draw(refs) {
+            //     return DRAW;
+            // }
 
             refs.board.unmake();
             refs.search_info.ply -= 1;

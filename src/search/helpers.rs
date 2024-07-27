@@ -14,7 +14,6 @@ pub type MoveBook = HashMap<String, Vec<(String, u32)>>;
 impl Search {
     pub fn is_draw(refs: &SearchRefs) -> bool {
         let max_move_rule = refs.board.gamestate.halfclock_move >= MAX_MOVE_RULE;
-
         // Check for max game_rule | insufficiant material | repetition
         max_move_rule || Search::insufficiant_material(refs) || Search::is_repition(refs.board) > 0
     }
