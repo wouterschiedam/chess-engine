@@ -1,9 +1,6 @@
 use super::defs::{Pieces, PIECE_NAME, SQUARE_NAME};
 use crate::movegen::defs::castling_as_string;
-use crate::{
-    defs::{self, Piece, Sides},
-    movegen::defs::Move,
-};
+use crate::{defs::Sides, movegen::defs::Move};
 
 #[derive(Clone, Copy, Debug)]
 pub struct GameState {

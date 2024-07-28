@@ -3,18 +3,14 @@ use rand::thread_rng;
 
 use crate::{
     board::{defs::Pieces, Board},
-    engine::{
-        transposition::{HashFlag, SearchData},
-        Engine,
-    },
-    extra::parse::{algebraic_move_to_number, algebraic_square_to_number},
-    movegen::defs::{movelist, Move, MoveList, MoveType, ShortMove},
+    engine::transposition::{HashFlag, SearchData},
+    extra::parse::algebraic_move_to_number,
+    movegen::defs::{Move, MoveList, MoveType, ShortMove},
     search::defs::SearchTerminate,
 };
-use std::time::Duration;
 
 use super::{
-    defs::{SearchRefs, CHECKMATE, CHECK_TERMINATION, DRAW, INF, SEND_STATS, STALEMATE},
+    defs::{SearchRefs, CHECKMATE, CHECK_TERMINATION, DRAW, INF, STALEMATE},
     Search,
 };
 
@@ -26,7 +22,6 @@ impl Search {
         possible_moves: &mut Vec<Move>,
         refs: &mut SearchRefs,
     ) -> i16 {
-        let quiet = refs.search_params.quiet; // If quiet, don't send intermediate stats.
         let is_root = refs.search_info.ply == 0; // At root if no moves were played.
         let mut pvs = false; // Used for PVS (Principal Variation Search)
 
@@ -61,6 +56,11 @@ impl Search {
         // Increment node count
         refs.search_info.nodes += 1;
 
+        // Check for repetition
+        if Search::is_repition(&refs.board) {
+            return 0; // or DRAW or any other value representing a draw
+        }
+
         // Variables to hold TT value and move if any.
         let mut tt_value: Option<i16> = None;
         let mut tt_move: ShortMove = ShortMove::new(0);
@@ -93,58 +93,12 @@ impl Search {
             .generate_moves(&refs.board, &mut move_list, MoveType::All);
 
         // Check the book for the current position
-        // Normalize the FEN string
-        // Create valid move from "a2a4" -> to MoveData store it in possible_moves and return
         let fen = Board::normalize_fen(&refs.board.create_fen()).to_string();
         if let Some(book_moves) = refs.book.get(&fen) {
-            if !book_moves.is_empty() {
-                possible_moves.clear();
-
-                // Pick a random move if it's the first move
-                if is_root {
-                    let mut rng = thread_rng();
-                    let random_move = book_moves.choose(&mut rng).expect("No book moves found");
-                    if let Ok(parsed_move) = algebraic_move_to_number(&random_move.0) {
-                        let mut result: Result<Move, ()> = Err(());
-
-                        for i in 0..move_list.len() {
-                            let current = move_list.get_move(i);
-                            if parsed_move.0 == current.from()
-                                && parsed_move.1 == current.to()
-                                && parsed_move.2 == current.promoted()
-                            {
-                                result = Ok(current);
-                                break;
-                            }
-                        }
-
-                        if let Ok(ips) = result {
-                            possible_moves.push(ips);
-                            return 0;
-                        }
-                    }
-                } else {
-                    // If not the first move, pick the first move from the book
-                    if let Ok(parsed_move) = algebraic_move_to_number(&book_moves[0].0) {
-                        let mut result: Result<Move, ()> = Err(());
-
-                        for i in 0..move_list.len() {
-                            let current = move_list.get_move(i);
-                            if parsed_move.0 == current.from()
-                                && parsed_move.1 == current.to()
-                                && parsed_move.2 == current.promoted()
-                            {
-                                result = Ok(current);
-                                break;
-                            }
-                        }
-
-                        if let Ok(ips) = result {
-                            possible_moves.push(ips);
-                            return 0;
-                        }
-                    }
-                }
+            if !book_moves.is_empty()
+                && Self::handle_book_moves(&book_moves, is_root, &move_list, possible_moves)
+            {
+                return 0;
             }
         } else {
             println!("No book moves found for FEN: {}", fen);
@@ -155,7 +109,7 @@ impl Search {
         // Set init best eval_score
         let mut best_eval_score = -INF;
 
-        // Set init hash value  assuming we do not beat alpha
+        // Set init hash value assuming we do not beat alpha
         let mut hash_flag = HashFlag::Alpha;
 
         // Holds the best move in the loop
@@ -167,6 +121,12 @@ impl Search {
             let current_move = move_list.get_move(x);
             if !refs.board.make_move(current_move, refs.move_generator) {
                 continue;
+            }
+
+            // Avoid moves that would lead to a third repetition if other moves are possible
+            if Search::is_repition(&refs.board) && legal_moves > 0 {
+                refs.board.unmake();
+                continue; // Avoid unfavorable repetition
             }
 
             legal_moves += 1;
@@ -198,10 +158,6 @@ impl Search {
                 return -INF;
             }
 
-            // if Search::is_draw(refs) {
-            //     return DRAW;
-            // }
-
             refs.board.unmake();
             refs.search_info.ply -= 1;
 
@@ -230,7 +186,7 @@ impl Search {
                 // the history heuristics.
                 if current_move.captured() == Pieces::NONE {
                     Search::store_killer_move(current_move, refs);
-                    // Search::update_history_heuristic(current_move, depth, refs);
+                    //Search::update_history_heuristic(current_move, depth, refs);
                 }
 
                 return beta;
@@ -278,5 +234,37 @@ impl Search {
         );
 
         alpha
+    }
+
+    fn handle_book_moves(
+        book_moves: &Vec<(String, u32)>,
+        is_root: bool,
+        move_list: &MoveList,
+        possible_moves: &mut Vec<Move>,
+    ) -> bool {
+        possible_moves.clear();
+
+        let selected_move = if is_root {
+            let mut rng = thread_rng();
+            book_moves.choose(&mut rng)
+        } else {
+            book_moves.first()
+        };
+
+        if let Some(book_move) = selected_move {
+            if let Ok(parsed_move) = algebraic_move_to_number(&book_move.0) {
+                for i in 0..move_list.len() {
+                    let current = move_list.get_move(i);
+                    if parsed_move.0 == current.from()
+                        && parsed_move.1 == current.to()
+                        && parsed_move.2 == current.promoted()
+                    {
+                        possible_moves.push(current);
+                        return true;
+                    }
+                }
+            }
+        }
+        false
     }
 }

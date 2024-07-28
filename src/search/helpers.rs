@@ -15,30 +15,40 @@ impl Search {
     pub fn is_draw(refs: &SearchRefs) -> bool {
         let max_move_rule = refs.board.gamestate.halfclock_move >= MAX_MOVE_RULE;
         // Check for max game_rule | insufficiant material | repetition
-        max_move_rule || Search::insufficiant_material(refs) || Search::is_repition(refs.board) > 0
+        max_move_rule || Search::insufficiant_material(refs) || Search::is_repition(refs.board)
     }
 
-    pub fn is_repition(board: &Board) -> u8 {
+    pub fn is_repition(board: &Board) -> bool {
         let mut count = 0;
         let mut stop = false;
+        let len = board.history.len();
+
+        // Ensure there is history to check
+        if len < 1 {
+            return false;
+        }
         let mut x = board.history.len() - 1;
 
-        while x != 0 && !stop {
+        // Traverse the history in reverse
+        while x > 0 && !stop {
+            x -= 1; // Decrement first since we are indexing from len() - 1
             let historic = board.history.get_ref(x);
 
-            // if zobrist key are the same we found repetition
+            // If zobrist keys are the same, we found a repetition
             if historic.zobrist_key == board.gamestate.zobrist_key {
                 count += 1;
             }
 
-            // if hcm is 0 it is because of a caputre or pawn move so this position cant have
-            // existed before
+            // Stop if we encounter a capture or pawn move (halfmove clock reset)
             stop = historic.halfclock_move == 0;
 
-            x -= 1;
+            // If the position has appeared three times, return true
+            if count >= 2 {
+                return true;
+            }
         }
 
-        count
+        false
     }
 
     // This function calculates the number of nodes per second.

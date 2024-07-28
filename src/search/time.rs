@@ -1,9 +1,6 @@
 use super::{defs::SearchRefs, Search};
-use crate::{defs::Sides, movegen::defs::Move, search::defs::MAX_KILLER_MOVES};
+use crate::{movegen::defs::Move, search::defs::MAX_KILLER_MOVES};
 
-pub const OVERHEAD: i128 = 50; // msecs
-const GAME_LENGTH: usize = 25; // moves
-const MOVES_BUFFER: usize = 5; //moves
 const CRITICAL_TIME: u128 = 1_000; // msecs
 const OK_TIME: u128 = CRITICAL_TIME * 5; // msecs
 
@@ -24,52 +21,6 @@ impl Search {
         };
 
         elapsed >= (overshoot_factor * allocated as f64).round() as u128
-    }
-
-    // Calculates the time the engine allocates for searching a single
-    // move. This depends on the number of moves still to go in the game.
-    pub fn calculate_time_slice(refs: &SearchRefs) -> u128 {
-        // Calculate the time slice step by step.
-        let gt = &refs.search_params.game_time;
-        let mtg = Search::moves_to_go(refs);
-        let white = refs.board.side_to_move() == Sides::WHITE;
-        let clock = if white { gt.white_time } else { gt.black_time };
-        let increment = if white {
-            gt.white_time_incr
-        } else {
-            gt.black_time_incr
-        } as i128;
-        let base_time = ((clock as f64) / (mtg as f64)).round() as i128;
-        let time_slice = base_time + increment - OVERHEAD;
-
-        // Make sure we're never sending less than 0 msecs of available time.
-        if time_slice > 0 {
-            // Just send the calculated slice.
-            time_slice as u128
-        } else if (base_time + increment) > (OVERHEAD / 5) {
-            // Don't substract GUI lag protection (overhead) if this leads
-            // to a negative time allocation.
-            (base_time + increment) as u128
-        } else {
-            // We actually don't have any time.
-            0
-        }
-    }
-
-    // Here we try to come up with some sort of sensible value for "moves
-    // to go", if this value is not supplied.
-    fn moves_to_go(refs: &SearchRefs) -> usize {
-        // If moves to go was supplied, then use this.
-        if let Some(x) = refs.search_params.game_time.moves_to_go {
-            x
-        } else {
-            // Guess moves to go if not supplied.
-            let white = refs.board.side_to_move() == Sides::WHITE;
-            let ply = refs.board.history.len();
-            let moves_made = if white { ply / 2 } else { (ply - 1) / 2 };
-
-            GAME_LENGTH - (moves_made % GAME_LENGTH) + MOVES_BUFFER
-        }
     }
 }
 

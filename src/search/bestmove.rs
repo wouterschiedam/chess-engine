@@ -1,10 +1,7 @@
-use super::{
-    defs::{SearchRefs, CHECK_TERMINATION, SEND_STATS},
-    Search,
-};
+use super::{defs::SearchRefs, Search};
 use crate::{
     defs::MAX_PLY,
-    evaluation::{self, evaluate_position},
+    evaluation::evaluate_position,
     movegen::defs::{Move, MoveList, MoveType, ShortMove},
 };
 

@@ -4,7 +4,7 @@ use super::{
 };
 use crate::{
     defs::{Castling, Sides, Square, FEN_START_POSITION, MAX_GAME_MOVES, MAX_MOVE_RULE},
-    movegen::defs::{algebraic_from_str, castling_as_string, print_bitboard},
+    movegen::defs::{algebraic_from_str, castling_as_string},
 };
 use std::ops::RangeInclusive;
 
@@ -25,7 +25,7 @@ type FenParser = fn(board: &mut Board, part: &str) -> bool;
 impl Board {
     pub fn read_fen(&mut self, fen_string: Option<&str>) -> FenResult {
         // Split the string into parts. There should be 6 parts.
-        let mut fen_parts: Vec<String> = match fen_string {
+        let fen_parts: Vec<String> = match fen_string {
             Some(f) => f,
             None => FEN_START_POSITION,
         }

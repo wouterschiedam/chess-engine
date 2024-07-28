@@ -4,10 +4,7 @@ use crate::{
     board::Board,
     comm::CommControl,
     defs::{EngineRunResult, FEN_KIWIPETE_POSITION},
-    extra::{
-        parse::{algebraic_move_to_number, PotentialMove},
-        print,
-    },
+    extra::parse::{algebraic_move_to_number, PotentialMove},
     movegen::{
         defs::{Move, MoveList, MoveType},
         MoveGenerator,

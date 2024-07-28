@@ -1,7 +1,7 @@
 use crate::{
     comm::{uci::UciReport, CommControl, CommReport},
     defs::FEN_START_POSITION,
-    search::defs::{SearchControl, SearchMode, SearchParams, SearchReport},
+    search::defs::{SearchControl, SearchMode, SearchParams, SearchType},
 };
 
 use super::Engine;
@@ -53,29 +53,40 @@ impl Engine {
             }
             UciReport::GoInfinite => {
                 sp.search_mode = SearchMode::Infinite;
-                self.search.send(SearchControl::Start(sp));
+                self.search
+                    .send(SearchControl::Start(sp, SearchType::Search));
             }
             UciReport::GoDepth(depth) => {
                 sp.depth = *depth;
                 sp.search_mode = SearchMode::Depth;
-                self.search.send(SearchControl::Start(sp));
+                self.search
+                    .send(SearchControl::Start(sp, SearchType::Search));
+            }
+            UciReport::GoPerft(depth) => {
+                sp.depth = *depth;
+                sp.search_mode = SearchMode::Depth;
+                self.search
+                    .send(SearchControl::Start(sp, SearchType::Perft));
             }
             UciReport::GoMoveTime(t) => {
                 sp.move_time = *t;
                 sp.search_mode = SearchMode::MoveTime;
-                self.search.send(SearchControl::Start(sp));
+                self.search
+                    .send(SearchControl::Start(sp, SearchType::Search));
             }
 
             UciReport::GoNodes(nodes) => {
                 sp.nodes = *nodes;
                 sp.search_mode = SearchMode::Nodes;
-                self.search.send(SearchControl::Start(sp));
+                self.search
+                    .send(SearchControl::Start(sp, SearchType::Search));
             }
 
             UciReport::GoGameTime(gt) => {
                 sp.game_time = *gt;
                 sp.search_mode = SearchMode::GameTime;
-                self.search.send(SearchControl::Start(sp));
+                self.search
+                    .send(SearchControl::Start(sp, SearchType::Search));
             }
 
             UciReport::Quit => self.quit(),

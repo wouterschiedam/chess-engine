@@ -26,7 +26,7 @@ impl Search {
         match cmd {
             SearchControl::Stop => refs.search_info.terminated = SearchTerminate::Stop,
             SearchControl::Quit => refs.search_info.terminated = SearchTerminate::Quit,
-            SearchControl::Start(_) | SearchControl::Nothing => (),
+            SearchControl::Start(..) | SearchControl::Nothing => (),
         };
 
         // Terminate search if certain conditions are met.

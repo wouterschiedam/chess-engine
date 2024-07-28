@@ -1,5 +1,5 @@
 use std::{
-    io::{self, stdin},
+    io::{self},
     sync::{Arc, Mutex},
     thread::{self, JoinHandle},
 };
@@ -9,14 +9,14 @@ use crossbeam_channel::Sender;
 use crate::{
     board::Board,
     defs::{About, Sides, FEN_START_POSITION},
-    engine::defs::{EngineOption, EngineOptionName, Information},
+    engine::defs::Information,
     evaluation::{evaluate_position, material::count},
     extra::print,
-    movegen::defs::{print_bitboard, Move},
+    movegen::defs::Move,
     search::{
         defs::{
-            GameTime, SearchCurrentMove, SearchStats, SearchSummary, CHECKMATE,
-            CHECKMATE_THRESHOLD, DRAW, INF,
+            GameTime, PerftSummary, SearchCurrentMove, SearchStats, SearchSummary, CHECKMATE,
+            CHECKMATE_THRESHOLD, INF,
         },
         Search,
     },
@@ -35,6 +35,7 @@ pub enum UciReport {
     Position(String, Vec<String>),
     GoInfinite,
     GoDepth(i8),
+    GoPerft(i8),
     GoMoveTime(u128),
     GoNodes(usize),
     GoGameTime(GameTime),
@@ -165,6 +166,7 @@ impl Uci {
                     CommControl::SearchCurrMove(current) => Self::search_current_move(&current),
                     CommControl::InfoString(info) => Self::info_string(&info),
                     CommControl::BestMove(best_move) => Self::find_best_move(&best_move),
+                    CommControl::PerftScore(perftsum) => Self::perft_summary(&perftsum),
                     CommControl::PrintBoard => Self::print_board(&t_board),
                     CommControl::PrintHistory => (),
                     CommControl::PrintHelp => (),
@@ -193,7 +195,7 @@ impl Uci {
             cmd if cmd.starts_with("position") => Self::parse_position(&cmd),
             // cmd if cmd.starts_with("setoption") => Self::parse_options(&cmd),
             cmd if cmd.starts_with("go") => Self::parse_go(&cmd),
-            cmd if cmd == "boardpos" => CommReport::Uci(UciReport::Board),
+            cmd if cmd == "d" => CommReport::Uci(UciReport::Board),
             _ => CommReport::Uci(UciReport::Unknown),
         }
     }
@@ -247,6 +249,7 @@ impl Uci {
             WInc,
             BInc,
             MovesToGo,
+            Perft,
         }
 
         let go_parts: Vec<String> = command.split_whitespace().map(|s| s.to_string()).collect();
@@ -258,6 +261,7 @@ impl Uci {
                 t if t == "go" => report = CommReport::Uci(UciReport::GoInfinite),
                 t if t == "infinite" => break, // Already Infinite; nothing more to do.
                 t if t == "depth" => token = Tokens::Depth,
+                t if t == "perft" => token = Tokens::Perft,
                 t if t == "movetime" => token = Tokens::MoveTime,
                 t if t == "nodes" => token = Tokens::Nodes,
                 t if t == "wtime" => token = Tokens::WTime,
@@ -270,6 +274,11 @@ impl Uci {
                     Tokens::Depth => {
                         let depth = part.parse::<i8>().unwrap_or(1);
                         report = CommReport::Uci(UciReport::GoDepth(depth));
+                        break; // break for-loop: nothing more to do.
+                    }
+                    Tokens::Perft => {
+                        let perft = part.parse::<i8>().unwrap_or(1);
+                        report = CommReport::Uci(UciReport::GoPerft(perft));
                         break; // break for-loop: nothing more to do.
                     }
                     Tokens::MoveTime => {
@@ -396,10 +405,28 @@ impl Uci {
     fn find_best_move(bestmove: &Move) {
         println!("bestmove {}", bestmove.as_string());
     }
-}
 
-impl Uci {
+    fn perft_summary(summary: &PerftSummary) {
+        let mut sorted_vec: Vec<_> = summary.moves.clone().into_iter().collect();
+
+        // Sort the vector based on the keys
+        sorted_vec.sort_by(|a, b| a.0.cmp(&b.0));
+
+        // Iterate over the sorted vector
+        for (key, value) in sorted_vec {
+            println!("{}: {}", key, value);
+        }
+
+        println!(
+            "\nDepth: {}\nnodes: {}\nNodes per second: {}\nTime: {:?} milliseconds\n",
+            summary.depth,
+            summary.nodes,
+            Search::nodes_per_sec(summary.nodes as usize, summary.time.as_millis()),
+            summary.time.as_millis()
+        );
+    }
+
     fn print_board(board: &Arc<Mutex<Board>>) {
-        print::print_position(&board.lock().expect("Error locking board"), None);
+        print::print_position(&board.lock().expect("Error locking board"));
     }
 }

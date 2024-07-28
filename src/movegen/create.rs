@@ -1,4 +1,4 @@
-use super::{defs::print_bitboard, MoveGenerator};
+use super::MoveGenerator;
 use crate::{
     board::{
         defs::{Direction, Files, Location, Ranks, BB_FILES, BB_RANKS, BB_SQUARES},

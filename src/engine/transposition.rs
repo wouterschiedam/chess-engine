@@ -13,39 +13,6 @@ pub trait IHashData {
     fn depth(&self) -> i8;
 }
 
-#[derive(Clone, Copy)]
-pub struct PerftData {
-    depth: i8,
-    leaf_nodes: u64,
-}
-
-impl IHashData for PerftData {
-    fn new() -> Self {
-        Self {
-            depth: 0,
-            leaf_nodes: 0,
-        }
-    }
-
-    fn depth(&self) -> i8 {
-        self.depth
-    }
-}
-
-impl PerftData {
-    pub fn create(depth: i8, leaf_nodes: u64) -> Self {
-        Self { depth, leaf_nodes }
-    }
-
-    pub fn get(&self, depth: i8) -> Option<u64> {
-        if self.depth == depth {
-            Some(self.leaf_nodes)
-        } else {
-            None
-        }
-    }
-}
-
 #[derive(Copy, Clone)]
 pub enum HashFlag {
     Nothing,

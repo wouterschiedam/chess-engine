@@ -1,6 +1,5 @@
 use super::defs::Move;
 use crate::defs::MAXLEGAL_MOVES;
-use std::mem;
 
 #[derive(Copy, Clone, Debug)]
 pub struct MoveList {

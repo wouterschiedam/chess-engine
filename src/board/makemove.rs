@@ -4,10 +4,7 @@ use super::{
 };
 use crate::{
     defs::{Castling, NrOf, Piece, Side, Sides, Square},
-    movegen::{
-        defs::{print_bitboard, Move},
-        MoveGenerator,
-    },
+    movegen::{defs::Move, MoveGenerator},
 };
 
 // Castling Permissions Per Square

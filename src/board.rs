@@ -1,12 +1,11 @@
 use self::{
-    defs::{Pieces, Ranks, BB_SQUARES, PIECE_CHAR_CAPS, SQUARE_BITBOARD},
+    defs::{Pieces, Ranks, BB_SQUARES},
     gamestate::GameState,
     history::History,
     zobrist::ZobristKey,
     zobrist::ZobristRandoms,
 };
 use crate::{
-    board::defs::SQUARE_NAME,
     defs::{Bitboard, NrOf, Piece, Side, Sides, Square, EMPTY},
     evaluation::{
         defs::PIECE_VALUES,
@@ -14,10 +13,7 @@ use crate::{
         psqt::{self, FLIP, PSQT_MG},
     },
     extra::{bits, parse::algebraic_square_to_number},
-    movegen::{
-        defs::{print_bitboard, Move, Shift},
-        PROMOTION_PIECES,
-    },
+    movegen::{defs::Shift, PROMOTION_PIECES},
 };
 use std::sync::Arc;
 

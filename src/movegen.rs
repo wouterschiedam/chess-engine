@@ -4,20 +4,25 @@ mod init;
 mod magics;
 mod movelist;
 
-use std::time::{Duration, Instant};
+use std::{
+    collections::HashMap,
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use crate::{
     board::{
-        defs::{Pieces, Squares, BB_RANKS, BB_SQUARES, PIECE_CHAR_CAPS, PIECE_NAME, SQUARE_NAME},
+        defs::{Pieces, Squares, BB_RANKS, BB_SQUARES},
         Board,
     },
     defs::{Bitboard, Castling, NrOf, Piece, Side, Sides, Square, EMPTY},
-    extra::bits::{self, next},
+    extra::bits::{self},
+    search::defs::PerftSummary,
 };
 
 use crate::movegen::magics::Magic;
 
-use self::defs::{print_bitboard, Move, MoveList, MoveType, Shift};
+use self::defs::{Move, MoveList, MoveType, Shift};
 
 pub const PROMOTION_PIECES: [usize; 4] =
     [Pieces::QUEEN, Pieces::ROOK, Pieces::KNIGHT, Pieces::BISHOP];
@@ -346,111 +351,48 @@ impl MoveGenerator {
     }
 }
 
-// ------------------ Test for movegeneration -------------------- \\
+impl MoveGenerator {
+    pub fn go_perft_results(
+        mut board: Board,
+        depth: i8,
+        movegen: &Arc<MoveGenerator>,
+    ) -> PerftSummary {
+        let mut move_list = MoveList::new();
+        let mut perft_result: HashMap<String, i32> = Default::default();
 
-#[cfg(test)]
-mod tests {
+        let mut total_nodes: i32 = 0;
 
-    use std::collections::HashMap;
+        let elapsed_time = Self::measure_time(|| {
+            let _ = movegen.generate_moves(&board, &mut move_list, MoveType::All);
 
-    use super::*;
-
-    // Reference:
-    // https://www.chessprogramming.org/Perft_Results
-    #[test]
-
-    fn depth_nodes() {
-        let positions = vec![
-            "r1b4r/1p3ppp/2p1k3/p2p4/5B2/2N5/PPQ1P3/R4BK1 w - - 0 1",
-            // -> depth 5 OK
-            //"r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1", // -> not OK
-            //"8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - 0 1", // -> dpeth 6 not OK
-            //"r3k2r/Pppp1ppp/1b3nbN/nP6/BBP1P3/q4N2/Pp1P2PP/R2Q1RK1 w kq - 0 1", //-> not Ok to much
-            //"rnbq1k1r/pp1Pbppp/2p5/8/2B5/8/PPP1NnPP/RNBQK2R w KQ - 1 8",
-            // "r4rk1/1pp1qppp/p1np1n2/2b1p1B1/2B1P1b1/P1NP1N2/1PP1QPPP/R4RK1 w - - 0 10",
-        ];
-
-        for position in positions {
-            let mut board = Board::new();
-            let _ = board.read_fen(Some(position));
-
-            println!("{:?}", print_bitboard(board.bb_side[Sides::WHITE]));
-            println!("{:?}", print_bitboard(board.bb_side[Sides::BLACK]));
-
-            let move_generator = MoveGenerator::new();
-            let mut move_list = MoveList::new();
-
-            let mut total_nodes: i32 = 0;
-
-            let depth = 3;
-
-            let mut perft_result: HashMap<String, i32> = Default::default();
-            let mut memo: HashMap<(String, u8), i32> = HashMap::new(); // Memoization map
-
-            let elapsed_time = measure_time(|| {
-                let _ = move_generator.generate_moves(&board, &mut move_list, MoveType::All);
-                for mov in move_list.moves.iter() {
-                    if mov.data > 0 {
-                        board.make_move(*mov, &move_generator);
-                        let the_move = format!("{}", mov.as_string());
-                        let nodes =
-                            perft_results(depth, &mut board, &move_generator, &the_move, &mut memo);
-                        total_nodes += nodes;
-                        perft_result.insert(the_move, nodes);
-                        board.unmake();
-                    }
+            for mov in move_list.moves.iter() {
+                if mov.data > 0 {
+                    board.make_move(*mov, &movegen);
+                    let the_move = format!("{}", mov.as_string());
+                    let nodes = Self::perft_results(depth - 1, &mut board, &movegen, &the_move);
+                    total_nodes += nodes;
+                    perft_result.insert(the_move, nodes);
+                    board.unmake();
                 }
-            });
-
-            let mut sorted_vec: Vec<_> = perft_result.into_iter().collect();
-
-            // Sort the vector based on the keys
-            sorted_vec.sort_by(|a, b| a.0.cmp(&b.0));
-
-            // Iterate oer the sorted vector
-            for (key, value) in sorted_vec {
-                println!("{}: {}", key, value);
             }
+        });
 
-            println!("\nPosition: {}\n", position);
-
-            println!(
-                "Depth: {} ply     Result: {} nodes    Time: {:?} milliseconds\n",
-                depth + 1,
-                total_nodes,
-                elapsed_time.as_millis()
-            );
-
-            println!(
-                "---------------------------------------------------------------------------\n"
-            );
+        PerftSummary {
+            depth,
+            nodes: total_nodes,
+            moves: perft_result,
+            time: elapsed_time,
         }
-    }
-
-    // Test helper classes //
-    fn measure_time<F: FnOnce()>(function: F) -> Duration {
-        let start_time = Instant::now();
-        function();
-        let end_time = Instant::now();
-        end_time - start_time
     }
 
     fn perft_results(
-        depth: u8,
+        depth: i8,
         board: &mut Board,
         move_generator: &MoveGenerator,
         current_move: &str,
-        memo: &mut HashMap<(String, u8), i32>,
     ) -> i32 {
         if depth == 0 {
             return 1;
-        }
-
-        let board_fen = board.create_fen(); // Assuming you have a method to get FEN from the board
-        let key = (board_fen.clone(), depth);
-
-        if let Some(&cached_result) = memo.get(&key) {
-            return cached_result;
         }
 
         let mut move_list = MoveList::new();
@@ -462,16 +404,20 @@ mod tests {
             if mov.data > 0 {
                 if board.make_move(*mov, move_generator) {
                     let nodes =
-                        perft_results(depth - 1, board, &move_generator, current_move, memo);
+                        Self::perft_results(depth - 1, board, &move_generator, current_move);
                     total_nodes += nodes;
                     board.unmake();
                 }
             }
         }
 
-        memo.insert(key, total_nodes);
         total_nodes
     }
-}
 
-/* Move list contains al moves, however nodes per move aren't correct */
+    fn measure_time<F: FnOnce()>(function: F) -> Duration {
+        let start_time = Instant::now();
+        function();
+        let end_time = Instant::now();
+        end_time - start_time
+    }
+}
