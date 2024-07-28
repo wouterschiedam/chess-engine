@@ -2,7 +2,10 @@ use super::{defs::SearchRefs, Search};
 use crate::{
     defs::MAX_PLY,
     evaluation::evaluate_position,
-    movegen::defs::{Move, MoveList, MoveType, ShortMove},
+    movegen::{
+        defs::{Move, MoveList, MoveType, ShortMove},
+        MoveStats,
+    },
 };
 
 impl Search {
@@ -32,9 +35,14 @@ impl Search {
 
         // Generate moves only with captures
         let mut move_list = MoveList::new();
+        let mut move_stats = MoveStats::new();
 
-        refs.move_generator
-            .generate_moves(&refs.board, &mut move_list, MoveType::Capture);
+        refs.move_generator.generate_moves(
+            &refs.board,
+            &mut move_list,
+            MoveType::Capture,
+            &mut move_stats,
+        );
 
         // Same as before make sure "best" moves are evaluated first
         Search::score_moves(&mut move_list, ShortMove::new(0), refs);

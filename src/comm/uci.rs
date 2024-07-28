@@ -424,6 +424,8 @@ impl Uci {
             Search::nodes_per_sec(summary.nodes as usize, summary.time.as_millis()),
             summary.time.as_millis()
         );
+
+        summary.move_stats.log();
     }
 
     fn print_board(board: &Arc<Mutex<Board>>) {

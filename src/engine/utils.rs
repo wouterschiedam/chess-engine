@@ -7,7 +7,7 @@ use crate::{
     extra::parse::{algebraic_move_to_number, PotentialMove},
     movegen::{
         defs::{Move, MoveList, MoveType},
-        MoveGenerator,
+        MoveGenerator, MoveStats,
     },
 };
 
@@ -97,10 +97,11 @@ impl Engine {
     ) -> Result<Move, ()> {
         let mut result = Err(());
         let mut movelist = MoveList::new();
+        let mut move_stats = MoveStats::new();
 
         let mutex_board = board.lock().expect("error locking board");
 
-        movegen.generate_moves(&mutex_board, &mut movelist, MoveType::All);
+        movegen.generate_moves(&mutex_board, &mut movelist, MoveType::All, &mut move_stats);
         // we dont need that sheit anymore
         std::mem::drop(mutex_board);
 

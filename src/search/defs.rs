@@ -13,7 +13,7 @@ use crate::{
     },
     movegen::{
         defs::{Move, ShortMove},
-        MoveGenerator,
+        MoveGenerator, MoveStats,
     },
 };
 use crossbeam_channel::{Receiver, Sender};
@@ -191,6 +191,7 @@ pub struct PerftSummary {
     pub nodes: i32, // depth reached during search
     pub moves: HashMap<String, i32>,
     pub time: Duration,
+    pub move_stats: MoveStats,
 }
 
 #[derive(Clone, PartialEq, Debug)]

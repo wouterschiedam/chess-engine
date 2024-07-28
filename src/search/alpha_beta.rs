@@ -5,7 +5,10 @@ use crate::{
     board::{defs::Pieces, Board},
     engine::transposition::{HashFlag, SearchData},
     extra::parse::algebraic_move_to_number,
-    movegen::defs::{Move, MoveList, MoveType, ShortMove},
+    movegen::{
+        defs::{Move, MoveList, MoveType, ShortMove},
+        MoveStats,
+    },
     search::defs::SearchTerminate,
 };
 
@@ -89,8 +92,13 @@ impl Search {
         // Generate and score moves
         let mut legal_moves = 0;
         let mut move_list = MoveList::new();
-        refs.move_generator
-            .generate_moves(&refs.board, &mut move_list, MoveType::All);
+        let mut move_stats = MoveStats::new();
+        refs.move_generator.generate_moves(
+            &refs.board,
+            &mut move_list,
+            MoveType::All,
+            &mut move_stats,
+        );
 
         // Check the book for the current position
         let fen = Board::normalize_fen(&refs.board.create_fen()).to_string();
@@ -100,8 +108,6 @@ impl Search {
             {
                 return 0;
             }
-        } else {
-            println!("No book moves found for FEN: {}", fen);
         }
 
         Search::score_moves(&mut move_list, tt_move, refs);
