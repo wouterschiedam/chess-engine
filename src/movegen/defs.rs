@@ -26,6 +26,42 @@ impl Shift {
     pub const CASTLING: usize = 23;
     pub const SORTSCORE: usize = 24;
 }
+
+pub struct Mask;
+impl Mask {
+    pub const PIECE: usize = 0x3F;
+    pub const FROM_SQ: usize = 0x3F << Shift::FROM_SQ;
+    pub const TO_SQ: usize = 0x3F << Shift::TO_SQ;
+    pub const CAPTURE: usize = 0xF << Shift::CAPTURE;
+    pub const EN_PASSANT: usize = 0x1 << Shift::EN_PASSANT;
+    pub const DOUBLE_STEP: usize = 0x1 << Shift::DOUBLE_STEP;
+    pub const CASTLING: usize = 0x1 << Shift::CASTLING;
+}
+
+pub struct MoveData {
+    pub piece: usize,
+    pub from: usize,
+    pub to: usize,
+    pub capture: usize,
+    pub en_passant: bool,
+    pub double_step: bool,
+    pub castling: bool,
+}
+
+impl MoveData {
+    pub fn from_bits(move_data: usize) -> Self {
+        Self {
+            piece: move_data & Mask::PIECE,
+            from: (move_data & Mask::FROM_SQ) >> Shift::FROM_SQ,
+            to: (move_data & Mask::TO_SQ) >> Shift::TO_SQ,
+            capture: (move_data & Mask::CAPTURE) >> Shift::CAPTURE,
+            en_passant: ((move_data & Mask::EN_PASSANT) >> Shift::EN_PASSANT) != 0,
+            double_step: ((move_data & Mask::DOUBLE_STEP) >> Shift::DOUBLE_STEP) != 0,
+            castling: ((move_data & Mask::CASTLING) >> Shift::CASTLING) != 0,
+        }
+    }
+}
+
 #[derive(Copy, Clone, PartialEq)]
 pub enum MoveType {
     Quiet,
@@ -79,7 +115,6 @@ impl Move {
         ((self.data >> Shift::CAPTURE as u64) & 0x7) as Piece
     }
     pub fn castling(&self) -> bool {
-        // 0x1 is least_significant bit
         ((self.data >> Shift::CASTLING as u64) & 0x1) as u8 == 1
     }
     pub fn double_push(&self) -> bool {

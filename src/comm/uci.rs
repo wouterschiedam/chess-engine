@@ -429,6 +429,6 @@ impl Uci {
     }
 
     fn print_board(board: &Arc<Mutex<Board>>) {
-        print::print_position(&board.lock().expect("Error locking board"));
+        print::print_position(&board.lock().expect("Error locking board"), false, None);
     }
 }

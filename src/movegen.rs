@@ -6,17 +6,23 @@ mod movelist;
 
 use std::{
     collections::HashMap,
+    fs::File,
     sync::Arc,
     time::{Duration, Instant},
 };
 
+use defs::MoveData;
+
 use crate::{
     board::{
-        defs::{Pieces, Squares, BB_RANKS, BB_SQUARES},
+        defs::{Pieces, Ranks, Squares, BB_RANKS, BB_SQUARES},
         Board,
     },
     defs::{Bitboard, Castling, NrOf, Piece, Side, Sides, Square, EMPTY},
-    extra::bits::{self},
+    extra::{
+        bits,
+        print::{self, print_position},
+    },
     search::defs::PerftSummary,
 };
 
@@ -320,6 +326,7 @@ impl MoveGenerator {
     ) {
         let mut bb_to = to;
         let player = board.side_to_move();
+        let opponent = board.side_to_move();
         let promotion_rank = Board::promotion_rank(player);
         let is_pawn = piece == Pieces::PAWN;
 
@@ -347,74 +354,11 @@ impl MoveGenerator {
             if !promotion {
                 move_data |= Pieces::NONE << Shift::PROMOTION;
 
-                let mut cloned_board = board.clone();
-                cloned_board.make_move(Move::new(move_data), &self);
-
-                if capture != Pieces::NONE {
-                    stats.captures += 1;
-                }
-                if en_passant {
-                    stats.en_passants += 1;
-                }
-                if castling {
-                    stats.castles += 1;
-                }
-
-                // Check if the move results in a check
-                let opponent = board.side_to_not_move();
-                let king_square = cloned_board.king_square(opponent);
-                if self.square_attacked(&cloned_board, player, king_square) {
-                    stats.checks += 1;
-                    println!("Check: from {} to {}", from, to_square);
-                    println!("fen: {}", cloned_board.create_fen());
-
-                    // Check for double checks
-                    let attackers =
-                        self.square_attacked_multiple(&cloned_board, player, king_square);
-                    if attackers > 1 {
-                        stats.double_checks += 1;
-                    }
-                }
-
-                // // Check if the move results in checkmate
-                // if cloned_board.is_checkmate() {
-                //     stats.checkmates += 1;
-                // }
-
                 move_list.push(Move::new(move_data));
             } else {
                 PROMOTION_PIECES.iter().for_each(|&promoted_piece| {
                     let promotion_piece = promoted_piece << Shift::PROMOTION;
                     let move_with_promotion = move_data | promotion_piece;
-
-                    let mut cloned_board = board.clone();
-                    cloned_board.make_move(Move::new(move_with_promotion), &self);
-
-                    if capture != Pieces::NONE {
-                        stats.captures += 1;
-                    }
-                    if en_passant {
-                        stats.en_passants += 1;
-                    }
-
-                    // Check if the promotion move results in a check
-                    let opponent = board.side_to_not_move();
-                    let king_square = cloned_board.king_square(opponent);
-                    if self.square_attacked(&cloned_board, player, king_square) {
-                        stats.checks += 1;
-
-                        // Check for double checks
-                        let attackers =
-                            self.square_attacked_multiple(&cloned_board, player, king_square);
-                        if attackers > 1 {
-                            stats.double_checks += 1;
-                        }
-                    }
-
-                    // Check if the promotion move results in checkmate
-                    // if self.is_checkmate() {
-                    //     stats.checkmates += 1;
-                    // }
 
                     move_list.push(Move::new(move_with_promotion));
                     stats.promotions += 1;
@@ -500,27 +444,34 @@ impl MoveGenerator {
         let mut perft_result: HashMap<String, i32> = Default::default();
 
         let mut total_nodes: i32 = 0;
+        let mut all_move_data = true;
 
         let elapsed_time = Self::measure_time(|| {
             let _ = movegen.generate_moves(&board, &mut move_list, MoveType::All, &mut move_stats);
 
             for mov in move_list.moves.iter() {
                 if mov.data > 0 {
-                    board.make_move(*mov, &movegen);
-                    let the_move = format!("{}", mov.as_string());
-                    let nodes = Self::perft_results(
-                        depth - 1,
-                        &mut board,
-                        &movegen,
-                        &the_move,
-                        &mut move_stats,
-                    );
-                    total_nodes += nodes;
-                    perft_result.insert(the_move, nodes);
-                    board.unmake();
+                    if (board.make_move(*mov, &movegen)) {
+                        all_move_data = false;
+                        let the_move = format!("{}", mov.as_string());
+                        let nodes = Self::perft_results(
+                            depth - 1,
+                            &mut board,
+                            &movegen,
+                            &the_move,
+                            &mut move_stats,
+                        );
+                        total_nodes += nodes;
+                        perft_result.insert(the_move, nodes);
+                        board.unmake();
+                    }
                 }
             }
         });
+
+        if all_move_data {
+            move_stats.checkmates += 1;
+        }
 
         PerftSummary {
             depth,
@@ -546,16 +497,50 @@ impl MoveGenerator {
         let _ = move_generator.generate_moves(&board, &mut move_list, MoveType::All, stats);
 
         let mut total_nodes = 0;
+        let mut all_legal_moves = true;
 
         for mov in move_list.moves.iter() {
             if mov.data > 0 {
                 if board.make_move(*mov, move_generator) {
+                    all_legal_moves = false;
+                    // if make_move is true move is valid so no not checkmate
+                    if depth == 1 {
+                        // Update stats only at target depth
+                        if mov.captured() != Pieces::NONE {
+                            stats.captures += 1;
+                        }
+                        if mov.en_passant() {
+                            stats.en_passants += 1;
+                        }
+                        if mov.castling() {
+                            stats.castles += 1;
+                        }
+
+                        let opponent = board.side_to_not_move();
+                        let king_square = board.king_square(opponent ^ 1);
+                        if move_generator.square_attacked(&board, opponent, king_square) {
+                            stats.checks += 1;
+                            if move_generator.square_attacked_multiple(
+                                &board,
+                                opponent,
+                                king_square,
+                            ) > 1
+                            {
+                                stats.double_checks += 1;
+                            }
+                        }
+                    }
+
                     let nodes =
-                        Self::perft_results(depth - 1, board, &move_generator, current_move, stats);
+                        Self::perft_results(depth - 1, board, move_generator, current_move, stats);
                     total_nodes += nodes;
                     board.unmake();
                 }
             }
+        }
+
+        if all_legal_moves && depth == 1 {
+            stats.checkmates += 1;
         }
 
         total_nodes

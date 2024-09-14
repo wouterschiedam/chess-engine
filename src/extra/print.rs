@@ -23,17 +23,28 @@ const CHAR_BB: char = 'b';
 const CHAR_BN: char = 'n';
 const CHAR_BP: char = 'p';
 
-pub fn print_position(board: &Board) {
+pub fn print_position(board: &Board, highlight_bitmask: bool, bitmask: Option<Bitboard>) {
     let mut ascii_board: AsciiBoard = [CHAR_ES; NrOf::SQUARES];
 
-    board_to_ascii(board, &mut ascii_board);
+    if !highlight_bitmask {
+        board_to_ascii(board, &mut ascii_board);
+    }
 
     // Print the board with grid lines
     for rank in (0..8).rev() {
         print!("\n +---+---+---+---+---+---+---+---+\n");
         for file in 0..8 {
             let index = rank * 8 + file;
-            print!(" | {}", ascii_board[index]);
+            let piece_char = if highlight_bitmask {
+                if (bitmask.unwrap() & (1 << index)) != 0 {
+                    '*'
+                } else {
+                    ' '
+                }
+            } else {
+                ascii_board[index]
+            };
+            print!(" | {}", piece_char);
         }
         if rank == 0 {
             print!(" | {}\n", rank + 1);

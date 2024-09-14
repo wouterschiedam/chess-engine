@@ -32,6 +32,9 @@ impl History {
     // not deleted from the array. If necessary, another game state will just
     // overwrite it.
     pub fn pop(&mut self) -> GameState {
+        if self.count == 0 {
+            return self.list[self.count];
+        }
         self.count -= 1;
         self.list[self.count]
     }

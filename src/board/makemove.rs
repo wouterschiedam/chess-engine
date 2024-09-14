@@ -101,7 +101,7 @@ impl Board {
                 Squares::C1 => self.move_piece(player, Pieces::ROOK, Squares::A1, Squares::D1),
                 Squares::G8 => self.move_piece(player, Pieces::ROOK, Squares::H8, Squares::F8),
                 Squares::C8 => self.move_piece(player, Pieces::ROOK, Squares::H8, Squares::F8),
-                _ => panic!("Eror moving rook"),
+                _ => panic!("Error moving rook"),
             }
         }
 
@@ -195,4 +195,5 @@ fn put_piece(board: &mut Board, side: Side, piece: Piece, square: Square) {
 fn reverse_move(board: &mut Board, side: Side, piece: Piece, remove: Square, put: Square) {
     remove_piece(board, side, piece, remove);
     put_piece(board, side, piece, put);
+    board.update_castling_perm(board.gamestate.castling & CASTLING_PERMS[remove]);
 }
