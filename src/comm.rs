@@ -39,6 +39,7 @@ pub enum CommControl {
     InfoString(String),                // Transmit general information.
     BestMove(Move),                    // Transmit the engine's best move.
     PerftScore(PerftSummary),          // Transmit perft score
+    SolvePuzzles,
     // Output to screen when running in a terminal window.
     PrintBoard,   // PrintBoard,
     PrintHistory, // PrintHistory,

@@ -1,6 +1,11 @@
 use std::sync::{Arc, Mutex};
+use std::fs::File;
+use std::error::Error;
 
+use crate::search::defs::{SearchControl, SearchParams, SearchType};
 use crate::{
+    puzzle::Puzzle,
+    search::Search,
     board::Board,
     comm::CommControl,
     defs::{EngineRunResult, FEN_KIWIPETE_POSITION},
@@ -119,5 +124,24 @@ impl Engine {
             }
         }
         result
+    }
+
+    /// Function to solve puzzles and log results to a file
+    pub fn solve_puzzle(&mut self, puzzle: Puzzle,  sp: SearchParams) -> Result<(), ()> {
+        
+        // Set up the board with the initial FEN position
+        self.board.lock().expect("error locking board").read_fen(Some(&puzzle.fen));
+
+        self.search.send(SearchControl::Start(sp, SearchType::Search));
+
+        // // Log the result
+        // if solved {
+        //     writeln!(writer, "Puzzle {} solved correctly: {:?}", i + 1, calculated_moves)?;
+        // } else {
+        //     writeln!(writer, "Puzzle {} failed: expected {:?}, got {:?}", i + 1, puzzle.solution_moves, calculated_moves)?;
+        //     writeln!(writer, "FEN: {}", locked_board.create_fen());
+        // }
+
+        Ok(())
     }
 }

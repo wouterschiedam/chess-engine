@@ -44,6 +44,7 @@ pub enum UciReport {
 
     // // Custom commands
     Board,
+    Puzzle,
     // History,
     // Eval,
     // Help,
@@ -167,6 +168,7 @@ impl Uci {
                     CommControl::InfoString(info) => Self::info_string(&info),
                     CommControl::BestMove(best_move) => Self::find_best_move(&best_move),
                     CommControl::PerftScore(perftsum) => Self::perft_summary(&perftsum),
+                    CommControl::SolvePuzzles => (),
                     CommControl::PrintBoard => Self::print_board(&t_board),
                     CommControl::PrintHistory => (),
                     CommControl::PrintHelp => (),
@@ -196,6 +198,7 @@ impl Uci {
             // cmd if cmd.starts_with("setoption") => Self::parse_options(&cmd),
             cmd if cmd.starts_with("go") => Self::parse_go(&cmd),
             cmd if cmd == "d" => CommReport::Uci(UciReport::Board),
+            cmd if cmd == "puzzles" => Self::solve_puzzles(),
             _ => CommReport::Uci(UciReport::Unknown),
         }
     }
@@ -431,4 +434,33 @@ impl Uci {
     fn print_board(board: &Arc<Mutex<Board>>) {
         print::print_position(&board.lock().expect("Error locking board"), false, None);
     }
+
+    fn solve_puzzles() ->  CommReport {
+        let mut moves: Vec<String> = Vec::new();
+        let mut input = String::new();
+        println!("Enter 'm' for manual FEN input, 'd' for database puzzles, or select a number (3-3) for preloaded puzzles:");
+
+        // Read user input from stdin
+        io::stdin().read_line(&mut input).expect("Failed to read input");
+        match input.trim() {
+            "m" =>  {
+                let mut manual_fen = String::new();
+                println!("Please enter a valid FEN string:");
+                io::stdin()
+                    .read_line(&mut manual_fen)
+                    .expect("Failed to read input");
+                CommReport::Uci(UciReport::Position(manual_fen.trim().to_string(), moves));
+                CommReport::Uci(UciReport::GoInfinite)
+            }
+            "d" => {
+                CommReport::Uci(UciReport::Puzzle)
+            }
+            _ => { 
+                    println!("Invalid input. Defaulting to puzzle testcases");
+                    CommReport::Uci(UciReport::Unknown)
+                }
+        }
+    }
+
+
 }

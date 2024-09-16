@@ -1,8 +1,9 @@
 use crate::{
-    comm::{uci::UciReport, CommControl, CommReport},
-    defs::FEN_START_POSITION,
-    search::defs::{SearchControl, SearchMode, SearchParams, SearchType},
+    comm::{uci::UciReport, CommControl, CommReport}, defs::FEN_START_POSITION, puzzle::Puzzle, search::defs::{SearchControl, SearchMode, SearchParams, SearchRefs, SearchType}
 };
+use std::env;
+use std::fs::File;
+use std::error::Error;
 
 use super::Engine;
 
@@ -88,6 +89,22 @@ impl Engine {
                 self.search
                     .send(SearchControl::Start(sp, SearchType::Search));
             }
+
+            UciReport::Puzzle => {
+                let path = env::current_dir().unwrap();
+                let formatted_path = format!("{}/../sorted_puzzles.csv", path.display());
+
+                match Puzzle::read_puzzles_from_csv(&formatted_path) {
+                    Ok(puzzles) => {
+                        for puzzle in puzzles {
+                            self.solve_puzzle(puzzle, sp);
+                        }
+                    }
+                    Err(e) => println!("Error reading puzzles from file: {}", e),
+                };
+
+
+            },
 
             UciReport::Quit => self.quit(),
             UciReport::Stop => self.search.send(SearchControl::Stop),

@@ -7,6 +7,7 @@ mod evaluation;
 mod extra;
 mod movegen;
 mod search;
+mod puzzle;
 
 fn main() {
     // Start thread for the chess engine
