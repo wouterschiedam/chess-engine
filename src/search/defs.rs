@@ -1,15 +1,24 @@
-use std::{sync::Arc, time::Instant};
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex},
+    time::{Duration, Instant},
+};
 
 use crate::{
     board::Board,
     defs::MAX_PLY,
-    engine::defs::Information,
+    engine::{
+        defs::Information,
+        transposition::{SearchData, TT},
+    },
     movegen::{
         defs::{Move, ShortMove},
-        MoveGenerator,
+        MoveGenerator, MoveStats,
     },
 };
 use crossbeam_channel::{Receiver, Sender};
+
+use super::helpers::MoveBook;
 // Some const for searching
 pub const INF: i16 = 25_000;
 pub const CHECKMATE: i16 = 24_000;
@@ -17,9 +26,6 @@ pub const CHECKMATE_THRESHOLD: i16 = 23_900;
 pub const STALEMATE: i16 = 0;
 pub const DRAW: i16 = 0;
 pub const CHECK_TERMINATION: usize = 0x7FF; // 2.047 nodes
-pub const SEND_STATS: usize = 0x7FFFF; // 524.287 nodes
-pub const MIN_TIME_STATS: u128 = 2_000; // Minimum time for sending stats
-pub const MIN_TIME_CURR_MOVE: u128 = 1_000; // Minimum time for sending curr_move
 pub const MAX_KILLER_MOVES: usize = 2;
 
 pub type SearchResult = (Move, SearchTerminate);
@@ -59,11 +65,17 @@ impl GameTime {
         }
     }
 }
+#[derive(Debug, PartialEq)]
+pub enum SearchType {
+    Search,
+    Perft,
+    Nothing,
+}
 
 #[derive(PartialEq)]
 // These commands can be used by the engine thread to control the search.
 pub enum SearchControl {
-    Start(SearchParams),
+    Start(SearchParams, SearchType),
     Stop,
     Quit,
     Nothing,
@@ -105,10 +117,6 @@ impl SearchParams {
             quiet: false,
         }
     }
-
-    pub fn is_game_time(&self) -> bool {
-        self.search_mode == SearchMode::GameTime
-    }
 }
 
 #[derive(PartialEq, Copy, Clone)]
@@ -119,6 +127,9 @@ pub struct SearchInfo {
     pub nodes: usize,
     pub ply: i8,
     pub killer_moves: KillerMoves,
+    pub last_stats_sent: u128,     // When last stats update was sent
+    pub last_curr_move_sent: u128, // When last current move was sent
+    pub allocated_time: u128,      // Allotted msecs to spend on move
     pub terminated: SearchTerminate,
 }
 
@@ -131,6 +142,9 @@ impl SearchInfo {
             nodes: 0,
             ply: 0,
             killer_moves: [[ShortMove::new(0); MAX_KILLER_MOVES]; MAX_PLY as usize],
+            last_stats_sent: 0,
+            last_curr_move_sent: 0,
+            allocated_time: 0,
             terminated: SearchTerminate::Nothing,
         }
     }
@@ -161,15 +175,6 @@ pub struct SearchCurrentMove {
     pub curr_move_number: u8,
 }
 
-impl SearchCurrentMove {
-    pub fn new(curr_move: Move, curr_move_number: u8) -> Self {
-        Self {
-            curr_move,
-            curr_move_number,
-        }
-    }
-}
-
 // This struct holds search statistics. These will be sent through the
 // engine thread to Comm, to be transmitted to the (G)UI.
 #[derive(PartialEq, Copy, Clone, Debug)]
@@ -180,15 +185,13 @@ pub struct SearchStats {
     pub hash_full: u16, // TT full in permille
 }
 
-impl SearchStats {
-    pub fn new(time: u128, nodes: usize, nps: usize, hash_full: u16) -> Self {
-        Self {
-            time,
-            nodes,
-            nps,
-            hash_full,
-        }
-    }
+#[derive(Clone, PartialEq, Debug)]
+pub struct PerftSummary {
+    pub depth: i8,  // depth reached during search
+    pub nodes: i32, // depth reached during search
+    pub moves: HashMap<String, i32>,
+    pub time: Duration,
+    pub move_stats: MoveStats,
 }
 
 #[derive(Clone, PartialEq, Debug)]
@@ -222,13 +225,17 @@ pub struct SearchRefs<'a> {
     pub search_params: &'a mut SearchParams,
     pub control_rx: &'a Receiver<SearchControl>,
     pub report_tx: &'a Sender<Information>,
+    pub tt_enabled: bool,
+    pub tt: &'a Arc<Mutex<TT<SearchData>>>,
+    pub book: &'a MoveBook,
 }
 
 // This struct holds all the reports a search can send to the engine.
 #[derive(PartialEq, Debug)]
 pub enum SearchReport {
-    Finished(Move),                       // Search done. Contains the best move.
-    SearchSummary(SearchSummary),         // Periodic intermediate results.
+    Finished(Move), // Search done. Contains the best move.
+    PerftScore(PerftSummary),
+    SearchSummary(SearchSummary), // Periodic intermediate results.
     SearchCurrentMove(SearchCurrentMove), // Move currently searched.
-    SearchStats(SearchStats),             // General search statistics
+    SearchStats(SearchStats),     // General search statistics
 }

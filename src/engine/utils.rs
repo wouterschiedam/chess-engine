@@ -1,16 +1,18 @@
 use std::sync::{Arc, Mutex};
+use std::fs::File;
+use std::error::Error;
 
+use crate::search::defs::{SearchControl, SearchParams, SearchType};
 use crate::{
+    puzzle::Puzzle,
+    search::Search,
     board::Board,
     comm::CommControl,
     defs::{EngineRunResult, FEN_KIWIPETE_POSITION},
-    extra::{
-        parse::{algebraic_move_to_number, PotentialMove},
-        print,
-    },
+    extra::parse::{algebraic_move_to_number, PotentialMove},
     movegen::{
         defs::{Move, MoveList, MoveType},
-        MoveGenerator,
+        MoveGenerator, MoveStats,
     },
 };
 
@@ -32,6 +34,8 @@ impl Engine {
             info_sender.clone(),
             Arc::clone(&self.board),
             Arc::clone(&self.movegen),
+            Arc::clone(&self.tt_search),
+            self.settings.tt_size > 0,
         );
         // update Comm interface
         self.comm.send(CommControl::Update);
@@ -98,10 +102,11 @@ impl Engine {
     ) -> Result<Move, ()> {
         let mut result = Err(());
         let mut movelist = MoveList::new();
+        let mut move_stats = MoveStats::new();
 
         let mutex_board = board.lock().expect("error locking board");
 
-        movegen.generate_moves(&mutex_board, &mut movelist, MoveType::All);
+        movegen.generate_moves(&mutex_board, &mut movelist, MoveType::All, &mut move_stats);
         // we dont need that sheit anymore
         std::mem::drop(mutex_board);
 
@@ -119,5 +124,24 @@ impl Engine {
             }
         }
         result
+    }
+
+    /// Function to solve puzzles and log results to a file
+    pub fn solve_puzzle(&mut self, puzzle: Puzzle,  sp: SearchParams) -> Result<(), ()> {
+        
+        // Set up the board with the initial FEN position
+        self.board.lock().expect("error locking board").read_fen(Some(&puzzle.fen));
+
+        self.search.send(SearchControl::Start(sp, SearchType::Search));
+
+        // // Log the result
+        // if solved {
+        //     writeln!(writer, "Puzzle {} solved correctly: {:?}", i + 1, calculated_moves)?;
+        // } else {
+        //     writeln!(writer, "Puzzle {} failed: expected {:?}, got {:?}", i + 1, puzzle.solution_moves, calculated_moves)?;
+        //     writeln!(writer, "FEN: {}", locked_board.create_fen());
+        // }
+
+        Ok(())
     }
 }

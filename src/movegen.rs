@@ -4,18 +4,31 @@ mod init;
 mod magics;
 mod movelist;
 
+use std::{
+    collections::HashMap,
+    fs::File,
+    sync::Arc,
+    time::{Duration, Instant},
+};
+
+use defs::MoveData;
+
 use crate::{
     board::{
-        defs::{Pieces, Squares, BB_RANKS, BB_SQUARES, SQUARE_NAME},
+        defs::{Pieces, Ranks, Squares, BB_RANKS, BB_SQUARES},
         Board,
     },
     defs::{Bitboard, Castling, NrOf, Piece, Side, Sides, Square, EMPTY},
-    extra::bits,
+    extra::{
+        bits,
+        print::{self, print_position},
+    },
+    search::defs::PerftSummary,
 };
 
 use crate::movegen::magics::Magic;
 
-use self::defs::{print_bitboard, Move, MoveList, MoveType, Shift};
+use self::defs::{Move, MoveList, MoveType, Shift};
 
 pub const PROMOTION_PIECES: [usize; 4] =
     [Pieces::QUEEN, Pieces::ROOK, Pieces::KNIGHT, Pieces::BISHOP];
@@ -30,6 +43,43 @@ pub struct MoveGenerator {
     pub bishop: Vec<Bitboard>,
     rook_magics: [Magic; NrOf::SQUARES],
     bishop_magics: [Magic; NrOf::SQUARES],
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub struct MoveStats {
+    captures: u64,
+    en_passants: u64,
+    castles: u64,
+    promotions: u64,
+    checks: u64,
+    discovery_checks: u64,
+    double_checks: u64,
+    checkmates: u64,
+}
+
+impl MoveStats {
+    pub fn new() -> Self {
+        Self {
+            captures: 0,
+            en_passants: 0,
+            castles: 0,
+            promotions: 0,
+            checks: 0,
+            discovery_checks: 0,
+            double_checks: 0,
+            checkmates: 0,
+        }
+    }
+    pub fn log(&self) {
+        println!("Captures: {}", self.captures);
+        println!("En Passants: {}", self.en_passants);
+        println!("Castles: {}", self.castles);
+        println!("Promotions: {}", self.promotions);
+        println!("Checks: {}", self.checks);
+        println!("Discovery Checks: {}", self.discovery_checks);
+        println!("Double Checks: {}", self.double_checks);
+        println!("Checkmates: {}\n", self.checkmates);
+    }
 }
 
 impl MoveGenerator {
@@ -56,15 +106,21 @@ impl MoveGenerator {
 
     // Generates moves for the side that is to move. The MoveType parameter
     // determines if all moves, or only captures need to be generated.
-    pub fn generate_moves(&self, board: &Board, move_list: &mut MoveList, move_type: MoveType) {
-        self.piece(board, Pieces::KING, move_list, move_type);
-        self.piece(board, Pieces::KNIGHT, move_list, move_type);
-        self.piece(board, Pieces::ROOK, move_list, move_type);
-        self.piece(board, Pieces::BISHOP, move_list, move_type);
-        self.piece(board, Pieces::QUEEN, move_list, move_type);
-        self.pawn(board, move_list, move_type);
+    pub fn generate_moves(
+        &self,
+        board: &Board,
+        move_list: &mut MoveList,
+        move_type: MoveType,
+        stats: &mut MoveStats,
+    ) {
+        self.piece(board, Pieces::KING, move_list, move_type, stats);
+        self.piece(board, Pieces::KNIGHT, move_list, move_type, stats);
+        self.piece(board, Pieces::ROOK, move_list, move_type, stats);
+        self.piece(board, Pieces::BISHOP, move_list, move_type, stats);
+        self.piece(board, Pieces::QUEEN, move_list, move_type, stats);
+        self.pawns(board, move_list, move_type, stats);
         if move_type == MoveType::All || move_type == MoveType::Quiet {
-            self.castling(board, move_list);
+            self.castling(board, move_list, stats);
         }
     }
 
@@ -99,6 +155,7 @@ impl MoveGenerator {
         self.pawns[side][square]
     }
 }
+
 // GET ACTUAL PSEUDO LEGAL MOVES!!!!
 impl MoveGenerator {
     pub fn piece(
@@ -107,6 +164,7 @@ impl MoveGenerator {
         piece: Piece,
         move_list: &mut MoveList,
         move_type: MoveType,
+        stats: &mut MoveStats,
     ) {
         let player = board.side_to_move();
         let bb_occupancy = board.occupancy();
@@ -125,60 +183,61 @@ impl MoveGenerator {
                 }
                 _ => panic!("Not a valid piece {piece}"),
             };
+
             // generate move according to movetype
             let bb_moves = match move_type {
                 MoveType::All => bb_target & !bb_own_pieces,
                 MoveType::Quiet => bb_target & bb_empty,
                 MoveType::Capture => bb_target & bb_opponent_pieces,
             };
-            self.add_move(board, piece, from, bb_moves, move_list);
+
+            self.add_move(board, piece, from, bb_moves, move_list, stats);
         }
     }
 
-    pub fn pawn(&self, board: &Board, move_list: &mut MoveList, move_type: MoveType) {
+    pub fn pawns(&self, board: &Board, list: &mut MoveList, mt: MoveType, stats: &mut MoveStats) {
         const UP: i8 = 8;
         const DOWN: i8 = -8;
 
-        let player = board.side_to_move();
+        // Create shorthand variables.
+        let us = board.side_to_move();
         let bb_opponent_pieces = board.bb_side[board.side_to_not_move()];
         let bb_empty = !board.occupancy();
-        let bb_fourth = BB_RANKS[Board::fourth_rank(player)];
-        let direction = if player == Sides::WHITE { UP } else { DOWN };
+        let bb_fourth = BB_RANKS[Board::fourth_rank(us)];
+        let direction = if us == Sides::WHITE { UP } else { DOWN };
         let rotation_count = (NrOf::SQUARES as i8 + direction) as u32;
-        let mut bb_pawn = board.get_pieces(Pieces::PAWN, player);
-        while bb_pawn > 0 {
-            let from = bits::next(&mut bb_pawn);
-            let to = (from as i8 + direction) as usize;
-            if to > 64 {
-                break;
-            }
+        let mut bb_pawns = board.get_pieces(Pieces::PAWN, us);
 
+        // As long as there are pawns, generate moves for each of them.
+        while bb_pawns > 0 {
+            let from = bits::next(&mut bb_pawns);
+            let to = (from as i8 + direction) as usize;
             let mut bb_moves = 0;
-            // generate pawn pushes
-            if move_type == MoveType::All || move_type == MoveType::Quiet {
+
+            // Generate pawn pushes
+            if mt == MoveType::All || mt == MoveType::Quiet {
                 let bb_push = BB_SQUARES[to];
                 let bb_one_step = bb_push & bb_empty;
                 let bb_two_step = bb_one_step.rotate_left(rotation_count) & bb_empty & bb_fourth;
-                bb_moves |= bb_one_step | bb_two_step
+                bb_moves |= bb_one_step | bb_two_step;
             }
 
-            // generate pawn captures
-            if move_type == MoveType::All || move_type == MoveType::Capture {
-                let bb_targets = self.get_pawn_attacks(player, from);
+            // Generate pawn captures
+            if mt == MoveType::All || mt == MoveType::Capture {
+                let bb_targets = self.get_pawn_attacks(us, from);
                 let bb_captures = bb_targets & bb_opponent_pieces;
-                let bb_ep_captures = match board.gamestate.en_passant {
+                let bb_ep_capture = match board.gamestate.en_passant {
                     Some(ep) => bb_targets & BB_SQUARES[ep as usize],
                     None => 0,
                 };
-                // print_bitboard(bb_targets);
-                bb_moves |= bb_captures | bb_ep_captures
+                bb_moves |= bb_captures | bb_ep_capture;
             }
 
-            self.add_move(board, Pieces::PAWN, from, bb_moves, move_list);
+            self.add_move(board, Pieces::PAWN, from, bb_moves, list, stats);
         }
     }
 
-    pub fn castling(&self, board: &Board, move_list: &mut MoveList) -> bool {
+    pub fn castling(&self, board: &Board, move_list: &mut MoveList, stats: &mut MoveStats) -> bool {
         let player = board.side_to_move();
         let opponent = board.side_to_not_move();
 
@@ -201,40 +260,42 @@ impl MoveGenerator {
                     && !self.square_attacked(board, opponent, Squares::F1)
                 {
                     let to = BB_SQUARES[from] << 2;
-                    self.add_move(board, Pieces::KING, from, to, move_list);
+                    self.add_move(board, Pieces::KING, from, to, move_list, stats);
                 }
             }
-            // Queenside
-            if board.gamestate.castling & Castling::WQ > 0 {
-                let bb_kingside_blockers =
-                    BB_SQUARES[Squares::B1] | BB_SQUARES[Squares::C1] | BB_SQUARES[Squares::D1];
-                let is_kingside_blocked = (bb_occupancy & bb_kingside_blockers) > 0;
 
-                if !is_kingside_blocked
+            if board.gamestate.castling & Castling::WQ > 0 {
+                // Queenside
+                let bb_queenside_blockers =
+                    BB_SQUARES[Squares::B1] | BB_SQUARES[Squares::C1] | BB_SQUARES[Squares::D1];
+                let is_queenside_blocked = (bb_occupancy & bb_queenside_blockers) > 0;
+
+                if !is_queenside_blocked
                     && !self.square_attacked(board, opponent, Squares::E1)
                     && !self.square_attacked(board, opponent, Squares::D1)
                 {
                     let to = BB_SQUARES[from] >> 2;
-                    self.add_move(board, Pieces::KING, from, to, move_list);
+                    self.add_move(board, Pieces::KING, from, to, move_list, stats);
                 }
             }
         }
 
         // Black castling
-        if castle_perm_b && player == Sides::BLACK {
-            // kingside
+        if player == Sides::BLACK && castle_perm_b {
+            // Kingside
             if board.gamestate.castling & Castling::BK > 0 {
-                let bb_queenside_blockers = BB_SQUARES[Squares::F8] | BB_SQUARES[Squares::G8];
-                let is_queenside_blocked = (bb_occupancy & bb_queenside_blockers) > 0;
+                let bb_kingside_blockers = BB_SQUARES[Squares::F8] | BB_SQUARES[Squares::G8];
+                let is_kingside_blocked = (bb_occupancy & bb_kingside_blockers) > 0;
 
-                if !is_queenside_blocked
+                if !is_kingside_blocked
                     && !self.square_attacked(board, opponent, Squares::E8)
                     && !self.square_attacked(board, opponent, Squares::F8)
                 {
                     let to = BB_SQUARES[from] << 2;
-                    self.add_move(board, Pieces::QUEEN, from, to, move_list);
+                    self.add_move(board, Pieces::KING, from, to, move_list, stats);
                 }
             }
+
             // Queenside
             if board.gamestate.castling & Castling::BQ > 0 {
                 let bb_queenside_blockers =
@@ -246,7 +307,7 @@ impl MoveGenerator {
                     && !self.square_attacked(board, opponent, Squares::D8)
                 {
                     let to = BB_SQUARES[from] >> 2;
-                    self.add_move(board, Pieces::QUEEN, from, to, move_list);
+                    self.add_move(board, Pieces::KING, from, to, move_list, stats);
                 }
             }
         }
@@ -261,9 +322,11 @@ impl MoveGenerator {
         from: Square,
         to: Bitboard,
         move_list: &mut MoveList,
+        stats: &mut MoveStats,
     ) {
         let mut bb_to = to;
         let player = board.side_to_move();
+        let opponent = board.side_to_move();
         let promotion_rank = Board::promotion_rank(player);
         let is_pawn = piece == Pieces::PAWN;
 
@@ -278,11 +341,6 @@ impl MoveGenerator {
             let promotion = is_pawn && Board::square_on_rank(to_square, promotion_rank);
             let double_push = is_pawn && ((to_square as i8 - from as i8).abs() == 16);
             let castling = (piece == Pieces::KING) && ((to_square as i8 - from as i8).abs() == 2);
-            // if piece == Pieces::KING
-            //     && self.square_attacked(&board, board.side_to_not_move(), to_square)
-            // {
-            //     continue;
-            // }
 
             // add all data into a 64 bit variable
             let mut move_data = (piece)
@@ -295,11 +353,15 @@ impl MoveGenerator {
 
             if !promotion {
                 move_data |= Pieces::NONE << Shift::PROMOTION;
+
                 move_list.push(Move::new(move_data));
             } else {
-                PROMOTION_PIECES.iter().for_each(|piece| {
-                    let promotion_piece = *piece << Shift::PROMOTION;
-                    move_list.push(Move::new(move_data | promotion_piece));
+                PROMOTION_PIECES.iter().for_each(|&promoted_piece| {
+                    let promotion_piece = promoted_piece << Shift::PROMOTION;
+                    let move_with_promotion = move_data | promotion_piece;
+
+                    move_list.push(Move::new(move_with_promotion));
+                    stats.promotions += 1;
                 });
             }
         }
@@ -335,328 +397,159 @@ impl MoveGenerator {
             || (bb_knight & attackers[Pieces::KNIGHT] > 0)
             || (bb_pawns & attackers[Pieces::PAWN] > 0)
     }
+
+    // Determine double attckers mostly used for double checks
+    pub fn square_attacked_multiple(&self, board: &Board, attacker: Side, square: Square) -> u8 {
+        let attackers = board.bb_pieces[attacker];
+
+        let occupancy = board.occupancy();
+        let bb_king = self.get_non_slider_moves(Pieces::KING, square);
+        let bb_rook = self.get_slider_moves(Pieces::ROOK, square, occupancy);
+        let bb_bishop = self.get_slider_moves(Pieces::BISHOP, square, occupancy);
+        let bb_knight = self.get_non_slider_moves(Pieces::KNIGHT, square);
+        let bb_pawns = self.get_pawn_attacks(attacker ^ 1, square);
+        let bb_queen = bb_rook | bb_bishop;
+
+        let mut count: u8 = 0;
+        if bb_king & attackers[Pieces::KING] > 0 {
+            count += 1;
+        }
+        if bb_rook & attackers[Pieces::ROOK] > 0 {
+            count += 1;
+        }
+        if bb_queen & attackers[Pieces::QUEEN] > 0 {
+            count += 1;
+        }
+        if bb_bishop & attackers[Pieces::BISHOP] > 0 {
+            count += 1;
+        }
+        if bb_knight & attackers[Pieces::KNIGHT] > 0 {
+            count += 1;
+        }
+        if bb_pawns & attackers[Pieces::PAWN] > 0 {
+            count += 1;
+        }
+        count
+    }
 }
 
-// ------------------ Test for movegeneration -------------------- \\
-
-#[cfg(test)]
-mod tests {
-
-    use super::*;
-
-    #[test]
-    fn pawn_moves_start_pos() {
-        let mut board = Board::new();
-        let _ = Board::read_fen(
-            &mut board,
-            Some("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"),
-        );
+impl MoveGenerator {
+    pub fn go_perft_results(
+        mut board: Board,
+        depth: i8,
+        movegen: &Arc<MoveGenerator>,
+    ) -> PerftSummary {
         let mut move_list = MoveList::new();
-        let move_generator = MoveGenerator::new();
-        let _ = move_generator.pawn(&board, &mut move_list, MoveType::All);
-        assert_eq!(move_list.len(), 16);
+        let mut move_stats = MoveStats::new();
+        let mut perft_result: HashMap<String, i32> = Default::default();
+
+        let mut total_nodes: i32 = 0;
+        let mut all_move_data = true;
+
+        let elapsed_time = Self::measure_time(|| {
+            let _ = movegen.generate_moves(&board, &mut move_list, MoveType::All, &mut move_stats);
+
+            for mov in move_list.moves.iter() {
+                if mov.data > 0 {
+                    if (board.make_move(*mov, &movegen)) {
+                        all_move_data = false;
+                        let the_move = format!("{}", mov.as_string());
+                        let nodes = Self::perft_results(
+                            depth - 1,
+                            &mut board,
+                            &movegen,
+                            &the_move,
+                            &mut move_stats,
+                        );
+                        total_nodes += nodes;
+                        perft_result.insert(the_move, nodes);
+                        board.unmake();
+                    }
+                }
+            }
+        });
+
+        if all_move_data {
+            move_stats.checkmates += 1;
+        }
+
+        PerftSummary {
+            depth,
+            nodes: total_nodes,
+            moves: perft_result,
+            time: elapsed_time,
+            move_stats,
+        }
     }
 
-    #[test]
-    fn white_moves_random_pos() {
-        let mut board = Board::new();
-        let _ = Board::read_fen(
-            &mut board,
-            Some("Q7/6R1/P5b1/1P6/1P3kP1/p3qPb1/K4p2/2B1N3 w - - 0 1"),
-        );
-        let move_generator = MoveGenerator::new();
-        // ----- Pawns ----- \\
+    fn perft_results(
+        depth: i8,
+        board: &mut Board,
+        move_generator: &MoveGenerator,
+        current_move: &str,
+        stats: &mut MoveStats,
+    ) -> i32 {
+        if depth == 0 {
+            return 1;
+        }
+
         let mut move_list = MoveList::new();
-        let _ = move_generator.pawn(&board, &mut move_list, MoveType::All);
-        assert_eq!(move_list.len(), 3);
+        let _ = move_generator.generate_moves(&board, &mut move_list, MoveType::All, stats);
 
-        // ----- Rook ----- \\
-        let mut move_list = MoveList::new();
-        let _ = move_generator.piece(&board, Pieces::ROOK, &mut move_list, MoveType::All);
-        assert_eq!(move_list.len(), 9);
+        let mut total_nodes = 0;
+        let mut all_legal_moves = true;
 
-        // ----- Bishop ----- \\
-        let mut move_list = MoveList::new();
-        let _ = move_generator.piece(&board, Pieces::BISHOP, &mut move_list, MoveType::All);
-        assert_eq!(move_list.len(), 4);
+        for mov in move_list.moves.iter() {
+            if mov.data > 0 {
+                if board.make_move(*mov, move_generator) {
+                    all_legal_moves = false;
+                    // if make_move is true move is valid so no not checkmate
+                    if depth == 1 {
+                        // Update stats only at target depth
+                        if mov.captured() != Pieces::NONE {
+                            stats.captures += 1;
+                        }
+                        if mov.en_passant() {
+                            stats.en_passants += 1;
+                        }
+                        if mov.castling() {
+                            stats.castles += 1;
+                        }
 
-        // ----- Knight ----- \\
-        let mut move_list = MoveList::new();
-        let _ = move_generator.piece(&board, Pieces::KNIGHT, &mut move_list, MoveType::All);
-        assert_eq!(move_list.len(), 3);
+                        let opponent = board.side_to_not_move();
+                        let king_square = board.king_square(opponent ^ 1);
+                        if move_generator.square_attacked(&board, opponent, king_square) {
+                            stats.checks += 1;
+                            if move_generator.square_attacked_multiple(
+                                &board,
+                                opponent,
+                                king_square,
+                            ) > 1
+                            {
+                                stats.double_checks += 1;
+                            }
+                        }
+                    }
 
-        // ----- Queen ----- \\
-        let mut move_list = MoveList::new();
-        let _ = move_generator.piece(&board, Pieces::QUEEN, &mut move_list, MoveType::All);
-        assert_eq!(move_list.len(), 12);
-
-        // ----- King ----- \\
-        let mut move_list = MoveList::new();
-        let _ = move_generator.piece(&board, Pieces::KING, &mut move_list, MoveType::All);
-        assert_eq!(move_list.len(), 5);
-    }
-
-    #[test]
-    fn black_moves_random_pos() {
-        let mut board = Board::new();
-        let _ = Board::read_fen(
-            &mut board,
-            Some("2b3rB/2P1k3/6P1/1Q2p1PP/1P2r3/2K1P3/1p4n1/8 b - - 0 1"),
-        );
-        let move_generator = MoveGenerator::new();
-        // ----- Pawns ----- \\
-        let mut move_list = MoveList::new();
-        let _ = move_generator.pawn(&board, &mut move_list, MoveType::All);
-        // let result: Vec<&Move> = move_list.moves.iter().filter(|x| x.data > 0).collect();
-        // for x in &result {
-        //     println!(
-        //         "{}{}{}",
-        //         PIECE_CHAR_CAPS[x.piece()],
-        //         SQUARE_NAME[x.from()],
-        //         SQUARE_NAME[x.to()],
-        //     );
-        // }
-        // 4 Because 1 move with 4 possible outcomes of promoting the pawn.
-        assert_eq!(move_list.len(), 4);
-
-        // ----- Rook ----- \\
-        let mut move_list = MoveList::new();
-        let _ = move_generator.piece(&board, Pieces::ROOK, &mut move_list, MoveType::All);
-        assert_eq!(move_list.len(), 13);
-
-        // ----- Bishop ----- \\
-        let mut move_list = MoveList::new();
-        let _ = move_generator.piece(&board, Pieces::BISHOP, &mut move_list, MoveType::All);
-        assert_eq!(move_list.len(), 7);
-
-        // ----- Knight ----- \\
-        let mut move_list = MoveList::new();
-        let _ = move_generator.piece(&board, Pieces::KNIGHT, &mut move_list, MoveType::All);
-        assert_eq!(move_list.len(), 4);
-
-        // ----- Queen ----- \\
-        let mut move_list = MoveList::new();
-        let _ = move_generator.piece(&board, Pieces::QUEEN, &mut move_list, MoveType::All);
-        assert_eq!(move_list.len(), 0);
-
-        // ----- King ----- \\
-        let mut move_list = MoveList::new();
-        let _ = move_generator.piece(&board, Pieces::KING, &mut move_list, MoveType::All);
-        assert_eq!(move_list.len(), 8);
-    }
-
-    #[test]
-    fn white_king_side_castle() {
-        let mut board = Board::new();
-        let move_generator = MoveGenerator::new();
-
-        // White castling
-        let mut move_list = MoveList::new();
-        let _ = board.read_fen(Some("8/8/8/8/8/8/8/4K2R w KQkq - 0 1"));
-        assert!(move_generator.castling(&board, &mut move_list));
-
-        // White castling rook under attack
-        let mut move_list = MoveList::new();
-        let _ = board.read_fen(Some("8/8/2b5/8/8/6P1/5P1P/4K2R w KQkq - 0 1"));
-        assert!(move_generator.castling(&board, &mut move_list));
-
-        // Can't castle out of check
-        let mut move_list = MoveList::new();
-        let _ = board.read_fen(Some("4r3/8/2b5/8/8/6P1/5P1P/4K2R w KQkq - 0 1"));
-        assert!(!move_generator.castling(&board, &mut move_list));
-
-        // Can't castle through check
-        let mut move_list = MoveList::new();
-        let _ = board.read_fen(Some("8/8/8/8/8/6Pb/5P1P/4K2R w KAha - 0 1"));
-        assert!(!move_generator.castling(&board, &mut move_list));
-
-        // Can't castle piece in the way
-        let mut move_list = MoveList::new();
-        let _ = board.read_fen(Some("8/8/8/8/8/6PN/5P1P/4KP1R w KAha - 0 1"));
-        assert!(!move_generator.castling(&board, &mut move_list));
-
-        // Can't piece in the way
-        let mut move_list = MoveList::new();
-        let _ = board.read_fen(Some("8/8/8/8/8/6PN/5P1P/4K1PR w KAha - 0 1"));
-        assert!(!move_generator.castling(&board, &mut move_list));
-    }
-
-    #[test]
-    fn white_queen_side_castle() {
-        let mut board = Board::new();
-        let move_generator = MoveGenerator::new();
-
-        // White castling
-        let mut move_list = MoveList::new();
-        let _ = board.read_fen(Some("8/8/8/8/8/8/8/R3K3 w HQha - 0 1"));
-        assert!(move_generator.castling(&board, &mut move_list));
-
-        // White castling
-        let mut move_list = MoveList::new();
-        let _ = board.read_fen(Some("8/8/8/8/8/2P5/PP1P4/R3K1N1 w HQha - 0 1"));
-        assert!(move_generator.castling(&board, &mut move_list));
-
-        // Can't castle out of check
-        let mut move_list = MoveList::new();
-        let _ = board.read_fen(Some("8/8/8/8/8/2P2n2/PP1P4/R3K1N1 w HQha - 0 1"));
-        assert!(!move_generator.castling(&board, &mut move_list));
-
-        // Can't castle through check
-        let mut move_list = MoveList::new();
-        let _ = board.read_fen(Some("8/8/8/8/8/2n5/PP1P4/R3K1N1 w HQha - 0 1"));
-        assert!(!move_generator.castling(&board, &mut move_list));
-
-        // Can't castle piece in the way
-        let mut move_list = MoveList::new();
-        let _ = board.read_fen(Some("8/8/8/8/8/2P5/PP1P4/R2QK1N1 w HQha - 0 1"));
-        assert!(!move_generator.castling(&board, &mut move_list));
-
-        // Can't piece in the way
-        let mut move_list = MoveList::new();
-        let _ = board.read_fen(Some("8/8/8/8/8/2P5/PP1P4/Rn2K1N1 w HQha - 0 1"));
-        assert!(!move_generator.castling(&board, &mut move_list));
-    }
-
-    #[test]
-    fn black_king_side_castle() {
-        let mut board = Board::new();
-        let move_generator = MoveGenerator::new();
-
-        // Black castling
-        let mut move_list = MoveList::new();
-        let _ = board.read_fen(Some("1p2k2r/8/8/8/8/8/8/8 b HAka - 0 1"));
-        assert!(move_generator.castling(&board, &mut move_list));
-
-        // Black castling
-        let mut move_list = MoveList::new();
-        let _ = board.read_fen(Some("1p2k2r/4bp1p/6p1/8/8/8/8/1P4P1 b HAka - 0 1"));
-        assert!(move_generator.castling(&board, &mut move_list));
-
-        // Can't castle out of check
-        let mut move_list = MoveList::new();
-        let _ = board.read_fen(Some("1p2k2r/4bp1p/6p1/8/B7/8/8/1P4P1 b HAka - 0 1"));
-        assert!(!move_generator.castling(&board, &mut move_list));
-
-        // Can't castle through check
-        let mut move_list = MoveList::new();
-        let _ = board.read_fen(Some("1p2k2r/4bp1p/6pB/8/8/8/8/1P4P1 b HAka - 0 1"));
-        assert!(!move_generator.castling(&board, &mut move_list));
-
-        // Can't castle piece in the way
-        let mut move_list = MoveList::new();
-        let _ = board.read_fen(Some("1p2k1nr/4bp1p/6pn/8/8/8/8/1P4P1 b HAka - 0 1"));
-        assert!(!move_generator.castling(&board, &mut move_list));
-
-        // Can't piece in the way
-        let mut move_list = MoveList::new();
-        let _ = board.read_fen(Some("1p2kN1r/4bp1p/6pn/3n4/8/8/8/1P4P1 b KQkq - 0 1"));
-        assert!(!move_generator.castling(&board, &mut move_list));
-    }
-
-    #[test]
-    fn black_queen_side_castle() {
-        let mut board = Board::new();
-        let move_generator = MoveGenerator::new();
-
-        // Black castling
-        let mut move_list = MoveList::new();
-        let _ = board.read_fen(Some("r3k3/8/8/8/8/8/8/8 b KQkq - 0 1"));
-        assert!(move_generator.castling(&board, &mut move_list));
-
-        // Black castling
-        let mut move_list = MoveList::new();
-        let _ = board.read_fen(Some("r3k3/qpb5/3n4/8/8/8/8/8 b HAhq - 0 1"));
-        assert!(move_generator.castling(&board, &mut move_list));
-
-        // Can't castle out of check
-        let mut move_list = MoveList::new();
-        let _ = board.read_fen(Some("r3k3/qpb5/3n4/8/8/8/8/4Q3 b KQkq - 0 1"));
-        assert!(!move_generator.castling(&board, &mut move_list));
-
-        // Can't castle through check
-        let mut move_list = MoveList::new();
-        let _ = board.read_fen(Some("r3k3/qpb5/3n4/8/7Q/8/8/8 b HAhq - 0 1"));
-        assert!(!move_generator.castling(&board, &mut move_list));
-
-        // Can't castle piece in the way
-        let mut move_list = MoveList::new();
-        let _ = board.read_fen(Some("r2Pk3/qpb5/3n4/8/8/8/8/P7 b HAhq - 0 1"));
-        assert!(!move_generator.castling(&board, &mut move_list));
-
-        // Can't piece in the way
-        let mut move_list = MoveList::new();
-        let _ = board.read_fen(Some("rn2k3/qpb5/3n4/8/8/8/8/P7 b HAhq - 0 1"));
-        assert!(!move_generator.castling(&board, &mut move_list));
-    }
-
-    #[test]
-    fn white_en_passant() {
-        let mut board = Board::new();
-        let move_generator = MoveGenerator::new();
-
-        // White left ep
-        let mut move_list = MoveList::new();
-        let _ = board.read_fen(Some("8/8/8/3pP3/8/8/8/8 w - d6 0 1"));
-        let _ = move_generator.pawn(&board, &mut move_list, MoveType::All);
-        assert!(move_list.len() == 2);
-
-        // White right ep
-        let mut move_list = MoveList::new();
-        let _ = board.read_fen(Some("8/8/8/4Pp2/8/8/8/8 w - f6 0 1"));
-        let _ = move_generator.pawn(&board, &mut move_list, MoveType::All);
-        assert!(move_list.len() == 2);
-
-        // White ep not possible
-        let mut move_list = MoveList::new();
-        let _ = board.read_fen(Some("8/8/8/4Pp2/8/8/8/8 w - - 0 1"));
-        let _ = move_generator.pawn(&board, &mut move_list, MoveType::All);
-        assert!(move_list.len() == 1);
-    }
-
-    #[test]
-    fn black_en_passant() {
-        let mut board = Board::new();
-        let move_generator = MoveGenerator::new();
-
-        // Black left ep
-        let mut move_list = MoveList::new();
-        let _ = board.read_fen(Some("8/8/8/8/1Pp5/8/8/8 b - b3 0 1"));
-        let _ = move_generator.pawn(&board, &mut move_list, MoveType::All);
-        assert!(move_list.len() == 2);
-
-        // White right ep
-        let mut move_list = MoveList::new();
-        let _ = board.read_fen(Some("8/8/8/8/pP6/8/8/8 b - b3 0 1"));
-        let _ = move_generator.pawn(&board, &mut move_list, MoveType::All);
-        assert!(move_list.len() == 2);
-
-        // White ep not possible
-        let mut move_list = MoveList::new();
-        let _ = board.read_fen(Some("8/8/8/8/pP6/8/8/8 b - - 0 1"));
-        let _ = move_generator.pawn(&board, &mut move_list, MoveType::All);
-        assert!(move_list.len() == 1);
-    }
-
-    #[test]
-    fn white_legal_moves() {
-        let mut board = Board::new();
-        let move_generator = MoveGenerator::new();
-
-        let possible_moves = [
-            "b5a4", "b5b4", "b5c4", "b5a5", "b5c5", "b5a6", "b5b6", "b5c6", "h1f2", "h1g3", "d6c4",
-            "d6e4", "d6f5", "d6b7", "d6c8", "d6e8", "g2g1", "g2b2", "g2c2", "g2d2", "g2e2", "g2f2",
-            "g2h2", "g2g3", "g2g4", "g2g5", "g8g7", "g8a8", "g8b8", "g8c8", "g8d8", "g8e8", "g8f8",
-            "g8h8", "h5d1", "h5e2", "h5f3", "h5g4", "c3c4", "g6g7", "e7e8q", "e7e8r", "e7e8n",
-            "e7e8b", "f7f8q", "f7f8r", "f7f8n", "f7f8b",
-        ];
-        // Generate random legal moves
-        let mut move_list = MoveList::new();
-        let _ = board.read_fen(Some("b5R1/4PP2/3Nk1P1/1K5B/8/1pP5/1p4Rp/6bN w - - 0 1"));
-        let _ = move_generator.generate_moves(&board, &mut move_list, MoveType::All);
-        for x in 0..move_list.moves.len() {
-            if move_list.moves[x].data != 0 {
-                assert_eq!(move_list.moves[x].as_string(), possible_moves[x]);
+                    let nodes =
+                        Self::perft_results(depth - 1, board, move_generator, current_move, stats);
+                    total_nodes += nodes;
+                    board.unmake();
+                }
             }
         }
+
+        if all_legal_moves && depth == 1 {
+            stats.checkmates += 1;
+        }
+
+        total_nodes
+    }
+
+    fn measure_time<F: FnOnce()>(function: F) -> Duration {
+        let start_time = Instant::now();
+        function();
+        let end_time = Instant::now();
+        end_time - start_time
     }
 }

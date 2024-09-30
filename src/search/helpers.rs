@@ -3,37 +3,52 @@ use crate::{
     defs::{Sides, MAX_MOVE_RULE},
 };
 
+use std::collections::HashMap;
+use std::fs::File;
+use std::io::{BufRead, BufReader};
+
 use super::{defs::SearchRefs, Search};
+
+pub type MoveBook = HashMap<String, Vec<(String, u32)>>;
 
 impl Search {
     pub fn is_draw(refs: &SearchRefs) -> bool {
         let max_move_rule = refs.board.gamestate.halfclock_move >= MAX_MOVE_RULE;
-
         // Check for max game_rule | insufficiant material | repetition
-        max_move_rule || Search::insufficiant_material(refs) || Search::is_repition(refs.board) > 0
+        max_move_rule || Search::insufficiant_material(refs) || Search::is_repition(refs.board)
     }
 
-    pub fn is_repition(board: &Board) -> u8 {
+    pub fn is_repition(board: &Board) -> bool {
         let mut count = 0;
         let mut stop = false;
+        let len = board.history.len();
+
+        // Ensure there is history to check
+        if len < 1 {
+            return false;
+        }
         let mut x = board.history.len() - 1;
 
-        while x != 0 && !stop {
+        // Traverse the history in reverse
+        while x > 0 && !stop {
+            x -= 1; // Decrement first since we are indexing from len() - 1
             let historic = board.history.get_ref(x);
 
-            // if zobrist key are the same we found repetition
+            // If zobrist keys are the same, we found a repetition
             if historic.zobrist_key == board.gamestate.zobrist_key {
                 count += 1;
             }
 
-            // if hcm is 0 it is because of a caputre or pawn move so this position cant have
-            // existed before
+            // Stop if we encounter a capture or pawn move (halfmove clock reset)
             stop = historic.halfclock_move == 0;
 
-            x -= 1;
+            // If the position has appeared three times, return true
+            if count >= 2 {
+                return true;
+            }
         }
 
-        count
+        false
     }
 
     // This function calculates the number of nodes per second.
@@ -47,6 +62,30 @@ impl Search {
         //     nps = 1;
         // }
         nps
+    }
+
+    pub fn load_book(filename: &str) -> MoveBook {
+        let mut book = MoveBook::new();
+        let file = File::open(filename).expect("Failed to open book file");
+        let reader = BufReader::new(file);
+        let mut current_pos = String::new();
+
+        for line in reader.lines() {
+            let line = line.expect("Failed to read line");
+            if line.starts_with("pos ") {
+                current_pos = line[4..].to_string();
+            } else {
+                let parts: Vec<&str> = line.split_whitespace().collect();
+                if parts.len() == 2 {
+                    let mv = parts[0].to_string();
+                    let weight: u32 = parts[1].parse().expect("Invalid weight");
+                    book.entry(current_pos.clone())
+                        .or_insert_with(Vec::new)
+                        .push((mv, weight));
+                }
+            }
+        }
+        book
     }
 }
 

@@ -1,5 +1,5 @@
 use std::{
-    io::{self, stdin},
+    io::{self},
     sync::{Arc, Mutex},
     thread::{self, JoinHandle},
 };
@@ -8,12 +8,17 @@ use crossbeam_channel::Sender;
 
 use crate::{
     board::Board,
-    defs::{About, FEN_START_POSITION},
-    engine::defs::{EngineOption, EngineOptionName, Information},
+    defs::{About, Sides, FEN_START_POSITION},
+    engine::defs::Information,
+    evaluation::{evaluate_position, material::count},
     extra::print,
-    movegen::defs::{print_bitboard, Move},
-    search::defs::{
-        GameTime, SearchCurrentMove, SearchStats, SearchSummary, CHECKMATE, CHECKMATE_THRESHOLD,
+    movegen::defs::Move,
+    search::{
+        defs::{
+            GameTime, PerftSummary, SearchCurrentMove, SearchStats, SearchSummary, CHECKMATE,
+            CHECKMATE_THRESHOLD, INF,
+        },
+        Search,
     },
 };
 
@@ -30,6 +35,7 @@ pub enum UciReport {
     Position(String, Vec<String>),
     GoInfinite,
     GoDepth(i8),
+    GoPerft(i8),
     GoMoveTime(u128),
     GoNodes(usize),
     GoGameTime(GameTime),
@@ -38,6 +44,7 @@ pub enum UciReport {
 
     // // Custom commands
     Board,
+    Puzzle,
     // History,
     // Eval,
     // Help,
@@ -155,11 +162,13 @@ impl Uci {
                     }
                     CommControl::Ready => println!("readyok"),
                     CommControl::Quit => quit = true,
-                    CommControl::SearchSummary(summary) => Self::search_summary(&summary),
+                    CommControl::SearchSummary(summary) => Self::search_summary(&summary, &t_board),
                     CommControl::SearchStats(stats) => Self::search_stats(&stats),
                     CommControl::SearchCurrMove(current) => Self::search_current_move(&current),
                     CommControl::InfoString(info) => Self::info_string(&info),
                     CommControl::BestMove(best_move) => Self::find_best_move(&best_move),
+                    CommControl::PerftScore(perftsum) => Self::perft_summary(&perftsum),
+                    CommControl::SolvePuzzles => (),
                     CommControl::PrintBoard => Self::print_board(&t_board),
                     CommControl::PrintHistory => (),
                     CommControl::PrintHelp => (),
@@ -188,7 +197,8 @@ impl Uci {
             cmd if cmd.starts_with("position") => Self::parse_position(&cmd),
             // cmd if cmd.starts_with("setoption") => Self::parse_options(&cmd),
             cmd if cmd.starts_with("go") => Self::parse_go(&cmd),
-            cmd if cmd == "boardpos" => CommReport::Uci(UciReport::Board),
+            cmd if cmd == "d" => CommReport::Uci(UciReport::Board),
+            cmd if cmd == "puzzles" => Self::solve_puzzles(),
             _ => CommReport::Uci(UciReport::Unknown),
         }
     }
@@ -242,6 +252,7 @@ impl Uci {
             WInc,
             BInc,
             MovesToGo,
+            Perft,
         }
 
         let go_parts: Vec<String> = command.split_whitespace().map(|s| s.to_string()).collect();
@@ -253,6 +264,7 @@ impl Uci {
                 t if t == "go" => report = CommReport::Uci(UciReport::GoInfinite),
                 t if t == "infinite" => break, // Already Infinite; nothing more to do.
                 t if t == "depth" => token = Tokens::Depth,
+                t if t == "perft" => token = Tokens::Perft,
                 t if t == "movetime" => token = Tokens::MoveTime,
                 t if t == "nodes" => token = Tokens::Nodes,
                 t if t == "wtime" => token = Tokens::WTime,
@@ -265,6 +277,11 @@ impl Uci {
                     Tokens::Depth => {
                         let depth = part.parse::<i8>().unwrap_or(1);
                         report = CommReport::Uci(UciReport::GoDepth(depth));
+                        break; // break for-loop: nothing more to do.
+                    }
+                    Tokens::Perft => {
+                        let perft = part.parse::<i8>().unwrap_or(1);
+                        report = CommReport::Uci(UciReport::GoPerft(perft));
                         break; // break for-loop: nothing more to do.
                     }
                     Tokens::MoveTime => {
@@ -308,9 +325,11 @@ impl Uci {
     //     CommReport::Uci(UciReport::SetOption())
     // }
 
-    fn search_summary(summary: &SearchSummary) {
+    fn search_summary(summary: &SearchSummary, board: &Arc<Mutex<Board>>) {
         // Check for checkmate
-        let score = if (summary.cp.abs() >= CHECKMATE_THRESHOLD) && (summary.cp.abs() < CHECKMATE) {
+        let score = if summary.cp == -INF {
+            format!("draw")
+        } else if (summary.cp.abs() >= CHECKMATE_THRESHOLD) && (summary.cp.abs() <= CHECKMATE) {
             // number of plays left to mate
             let plays = CHECKMATE - summary.cp.abs();
 
@@ -346,9 +365,16 @@ impl Uci {
 
         let pv = summary.pv_as_string();
 
+        let board_lock = board.lock().expect("Error locking board");
+        let eval = evaluate_position(&board_lock);
+        let w_psqt = &board_lock.gamestate.psqt[Sides::WHITE];
+        let b_psqt = &board_lock.gamestate.psqt[Sides::BLACK];
+
+        let (w_material, b_material) = count(&board_lock);
+
         let info = format!(
-            "info score {} {} time {} nodes {} nps {} pv {}",
-            score, depth, summary.time, summary.nodes, summary.nps, pv,
+            "info score {} {} time {} nodes {} nps {} pv {} eval {} w_psqt {} b_psqt {} w_material {} b_material {}",
+            score, depth, summary.time, summary.nodes, summary.nps, pv, eval, w_psqt, b_psqt, w_material, b_material
         );
 
         println!("{info}");
@@ -382,10 +408,59 @@ impl Uci {
     fn find_best_move(bestmove: &Move) {
         println!("bestmove {}", bestmove.as_string());
     }
-}
 
-impl Uci {
-    fn print_board(board: &Arc<Mutex<Board>>) {
-        print::print_position(&board.lock().expect("Error locking board"), None);
+    fn perft_summary(summary: &PerftSummary) {
+        let mut sorted_vec: Vec<_> = summary.moves.clone().into_iter().collect();
+
+        // Sort the vector based on the keys
+        sorted_vec.sort_by(|a, b| a.0.cmp(&b.0));
+
+        // Iterate over the sorted vector
+        for (key, value) in sorted_vec {
+            println!("{}: {}", key, value);
+        }
+
+        println!(
+            "\nDepth: {}\nnodes: {}\nNodes per second: {}\nTime: {:?} milliseconds\n",
+            summary.depth,
+            summary.nodes,
+            Search::nodes_per_sec(summary.nodes as usize, summary.time.as_millis()),
+            summary.time.as_millis()
+        );
+
+        summary.move_stats.log();
     }
+
+    fn print_board(board: &Arc<Mutex<Board>>) {
+        print::print_position(&board.lock().expect("Error locking board"), false, None);
+    }
+
+    fn solve_puzzles() ->  CommReport {
+        let mut moves: Vec<String> = Vec::new();
+        let mut input = String::new();
+        println!("Enter 'm' for manual FEN input, 'd' for database puzzles, or select a number (3-3) for preloaded puzzles:");
+
+        // Read user input from stdin
+        io::stdin().read_line(&mut input).expect("Failed to read input");
+        match input.trim() {
+            "m" =>  {
+                let mut manual_fen = String::new();
+                println!("Please enter a valid FEN string:");
+                io::stdin()
+                    .read_line(&mut manual_fen)
+                    .expect("Failed to read input");
+                CommReport::Uci(UciReport::Position(manual_fen.trim().to_string(), moves));
+                CommReport::Uci(UciReport::GoInfinite)
+            }
+            "d" => {
+                CommReport::Uci(UciReport::Puzzle)
+            }
+            _ => { 
+                    println!("Invalid input. Defaulting to puzzle testcases");
+                    CommReport::Uci(UciReport::Unknown)
+                }
+        }
+    }
+
+
 }

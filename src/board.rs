@@ -1,12 +1,11 @@
 use self::{
-    defs::{Pieces, Ranks, BB_SQUARES, PIECE_CHAR_CAPS, SQUARE_BITBOARD},
+    defs::{Pieces, Ranks, BB_SQUARES},
     gamestate::GameState,
     history::History,
     zobrist::ZobristKey,
     zobrist::ZobristRandoms,
 };
 use crate::{
-    board::defs::SQUARE_NAME,
     defs::{Bitboard, NrOf, Piece, Side, Sides, Square, EMPTY},
     evaluation::{
         defs::PIECE_VALUES,
@@ -14,10 +13,7 @@ use crate::{
         psqt::{self, FLIP, PSQT_MG},
     },
     extra::{bits, parse::algebraic_square_to_number},
-    movegen::{
-        defs::{print_bitboard, Move, Shift},
-        PROMOTION_PIECES,
-    },
+    movegen::{defs::Shift, PROMOTION_PIECES},
 };
 use std::sync::Arc;
 
@@ -27,7 +23,7 @@ mod gamestate;
 mod history;
 mod makemove;
 mod utils;
-mod zobrist;
+pub mod zobrist;
 #[derive(Clone, Debug)]
 pub struct Board {
     pub bb_pieces: [[Bitboard; NrOf::PIECE_TYPES]; Sides::BOTH],
@@ -228,6 +224,7 @@ impl Board {
         if !promotion {
             move_data |= Pieces::NONE << Shift::PROMOTION;
         } else {
+            // or add 4 promotion pieces
             PROMOTION_PIECES.iter().for_each(|piece| {
                 let promotion_piece = *piece << Shift::PROMOTION;
                 move_data = move_data | promotion_piece;

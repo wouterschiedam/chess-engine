@@ -1,7 +1,5 @@
 use crate::defs::{Bitboard, NrOf};
 
-use super::defs::print_bitboard;
-
 // Magic numbers for the rook generated with some trickery DONT CHANGE THEM
 pub const ROOK_MAGIC_NRS: [u64; NrOf::SQUARES] = [
     2341872361636118536u64,

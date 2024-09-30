@@ -1,11 +1,7 @@
-use super::{
-    defs::{Location, Pieces},
-    Board,
-};
+use super::{defs::Location, Board};
 use crate::{
     board::defs::Ranks,
     defs::{Side, Sides, Square},
-    movegen::defs::print_bitboard,
 };
 
 impl Board {

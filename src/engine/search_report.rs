@@ -9,6 +9,9 @@ impl Engine {
                 self.comm.send(CommControl::BestMove(*m));
                 self.comm.send(CommControl::Update);
             }
+            SearchReport::PerftScore(ps) => {
+                self.comm.send(CommControl::PerftScore(ps.clone()));
+            }
             SearchReport::SearchCurrentMove(cm) => self.comm.send(CommControl::SearchCurrMove(*cm)),
             SearchReport::SearchStats(ss) => self.comm.send(CommControl::SearchStats(*ss)),
             SearchReport::SearchSummary(sm) => {

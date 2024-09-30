@@ -8,7 +8,6 @@ impl About {
     pub const ENGINE: &'static str = "Rust engine";
     pub const VERSION: &'static str = env!("CARGO_PKG_VERSION");
     pub const AUTHOR: &'static str = "Wouter van Krugten";
-    pub const EMAIL: &'static str = "mail@wouterschiedam.nl";
 }
 
 #[derive(Copy, Debug, Clone, PartialEq)]
@@ -49,13 +48,13 @@ pub const MAX_MOVE_RULE: u8 = 100; // 50/75 move rule
 
 // Define errors
 pub type EngineRunResult = Result<(), u8>;
-pub const ENGINE_RUN_ERRORS: [&str; 8] = [
-    "FEN: Must have six parts",
-    "FEN: Pieces and squares incorrect",
-    "FEN: Color selection incorrect",
-    "FEN: Castling permissions incorrect",
-    "FEN: En-passant square incorrect",
-    "FEN: Half-move clock incorrect",
-    "FEN: Full-move number incorrect",
-    "XBoard not yet implemented.",
-];
+// pub const ENGINE_RUN_ERRORS: [&str; 8] = [
+//     "FEN: Must have six parts",
+//     "FEN: Pieces and squares incorrect",
+//     "FEN: Color selection incorrect",
+//     "FEN: Castling permissions incorrect",
+//     "FEN: En-passant square incorrect",
+//     "FEN: Half-move clock incorrect",
+//     "FEN: Full-move number incorrect",
+//     "XBoard not yet implemented.",
+// ];

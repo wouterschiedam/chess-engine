@@ -6,6 +6,7 @@ use crate::{
 };
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaChaRng;
+#[allow(dead_code)]
 pub fn find_magics(piece: Piece) {
     // First check if we're actually dealing with a rook or a bishop.
     let ok = piece == Pieces::ROOK || piece == Pieces::BISHOP;

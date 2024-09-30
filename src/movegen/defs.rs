@@ -6,27 +6,11 @@ pub const NOT_AB_FILE: u64 = 18229723555195321596;
 
 pub const NOT_HG_FILE: u64 = 4557430888798830399;
 
-pub const MAX_COLUMNS: usize = 8;
-pub const MAX_ROWS: usize = 8;
-pub const BOARD_SIZE: usize = 64;
-
 pub use super::{magics::Magic, movelist::MoveList};
 use crate::{
-    board::defs::{RangeOf, PIECE_CHAR_CAPS, PIECE_CHAR_SMALL, PIECE_NAME, SQUARE_NAME},
-    defs::{Castling, NrOf, Piece, Square},
+    board::defs::{PIECE_CHAR_CAPS, PIECE_CHAR_SMALL, PIECE_NAME, SQUARE_NAME},
+    defs::{Castling, Piece, Square},
 };
-// bishop relevant occupancy bit count for every square on board
-const BISHOP_RELEVANT_BITS: [u8; 64] = [
-    6, 5, 5, 5, 5, 5, 5, 6, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 7, 7, 7, 7, 5, 5, 5, 5, 7, 9, 9, 7, 5, 5,
-    5, 5, 7, 9, 9, 7, 5, 5, 5, 5, 7, 7, 7, 7, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 6, 5, 5, 5, 5, 5, 5, 6,
-];
-
-// rook relevant occupancy bit count for every square on board
-const ROOK_RELEVANT_BITS: [u8; 64] = [
-    12, 11, 11, 11, 11, 11, 11, 12, 11, 10, 10, 10, 10, 10, 10, 11, 11, 10, 10, 10, 10, 10, 10, 11,
-    11, 10, 10, 10, 10, 10, 10, 11, 11, 10, 10, 10, 10, 10, 10, 11, 11, 10, 10, 10, 10, 10, 10, 11,
-    11, 10, 10, 10, 10, 10, 10, 11, 12, 11, 11, 11, 11, 11, 11, 12,
-];
 
 const MOVE_ONLY: usize = 0x00_00_00_00_00_FF_FF_FF;
 
@@ -42,6 +26,42 @@ impl Shift {
     pub const CASTLING: usize = 23;
     pub const SORTSCORE: usize = 24;
 }
+
+pub struct Mask;
+impl Mask {
+    pub const PIECE: usize = 0x3F;
+    pub const FROM_SQ: usize = 0x3F << Shift::FROM_SQ;
+    pub const TO_SQ: usize = 0x3F << Shift::TO_SQ;
+    pub const CAPTURE: usize = 0xF << Shift::CAPTURE;
+    pub const EN_PASSANT: usize = 0x1 << Shift::EN_PASSANT;
+    pub const DOUBLE_STEP: usize = 0x1 << Shift::DOUBLE_STEP;
+    pub const CASTLING: usize = 0x1 << Shift::CASTLING;
+}
+
+pub struct MoveData {
+    pub piece: usize,
+    pub from: usize,
+    pub to: usize,
+    pub capture: usize,
+    pub en_passant: bool,
+    pub double_step: bool,
+    pub castling: bool,
+}
+
+impl MoveData {
+    pub fn from_bits(move_data: usize) -> Self {
+        Self {
+            piece: move_data & Mask::PIECE,
+            from: (move_data & Mask::FROM_SQ) >> Shift::FROM_SQ,
+            to: (move_data & Mask::TO_SQ) >> Shift::TO_SQ,
+            capture: (move_data & Mask::CAPTURE) >> Shift::CAPTURE,
+            en_passant: ((move_data & Mask::EN_PASSANT) >> Shift::EN_PASSANT) != 0,
+            double_step: ((move_data & Mask::DOUBLE_STEP) >> Shift::DOUBLE_STEP) != 0,
+            castling: ((move_data & Mask::CASTLING) >> Shift::CASTLING) != 0,
+        }
+    }
+}
+
 #[derive(Copy, Clone, PartialEq)]
 pub enum MoveType {
     Quiet,
@@ -95,7 +115,6 @@ impl Move {
         ((self.data >> Shift::CAPTURE as u64) & 0x7) as Piece
     }
     pub fn castling(&self) -> bool {
-        // 0x1 is least_significant bit
         ((self.data >> Shift::CASTLING as u64) & 0x1) as u8 == 1
     }
     pub fn double_push(&self) -> bool {
@@ -144,45 +163,6 @@ impl ShortMove {
     pub fn get_move(&self) -> u32 {
         self.data
     }
-}
-
-pub fn print_bitboard(bitboard: u64) -> () {
-    println!("\n");
-    let coordinate_alpha: &str = "ABCDEFGH";
-    let mut coordinate_digit = NrOf::FILES;
-
-    for current_rank in RangeOf::RANKS.rev() {
-        print!("{coordinate_digit}    ");
-
-        for current_file in RangeOf::FILES {
-            let square = (current_rank as usize * NrOf::FILES) + current_file as usize;
-
-            // print bit state (either 1 or 0)
-            print!(
-                " {:?}",
-                if get_bit(&bitboard, square) != 0 {
-                    1
-                } else {
-                    0
-                }
-            );
-        }
-
-        println!();
-        println!();
-        coordinate_digit -= 1;
-    }
-
-    print!("      ");
-    for c in coordinate_alpha.chars() {
-        print!("{c} ");
-    }
-
-    println!();
-    println!();
-
-    // print bitboard as unsigned decimal number
-    println!("     Bitboard: {:?}\n\n", bitboard);
 }
 
 // Prints a given movelist to the screen.

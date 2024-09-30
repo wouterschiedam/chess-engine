@@ -1,8 +1,9 @@
 use crate::{
-    comm::{uci::UciReport, CommControl, CommReport},
-    defs::FEN_START_POSITION,
-    search::defs::{SearchControl, SearchMode, SearchParams, SearchReport},
+    comm::{uci::UciReport, CommControl, CommReport}, defs::FEN_START_POSITION, puzzle::Puzzle, search::defs::{SearchControl, SearchMode, SearchParams, SearchRefs, SearchType}
 };
+use std::env;
+use std::fs::File;
+use std::error::Error;
 
 use super::Engine;
 
@@ -53,30 +54,57 @@ impl Engine {
             }
             UciReport::GoInfinite => {
                 sp.search_mode = SearchMode::Infinite;
-                self.search.send(SearchControl::Start(sp));
+                self.search
+                    .send(SearchControl::Start(sp, SearchType::Search));
             }
             UciReport::GoDepth(depth) => {
                 sp.depth = *depth;
                 sp.search_mode = SearchMode::Depth;
-                self.search.send(SearchControl::Start(sp));
+                self.search
+                    .send(SearchControl::Start(sp, SearchType::Search));
+            }
+            UciReport::GoPerft(depth) => {
+                sp.depth = *depth;
+                sp.search_mode = SearchMode::Depth;
+                self.search
+                    .send(SearchControl::Start(sp, SearchType::Perft));
             }
             UciReport::GoMoveTime(t) => {
                 sp.move_time = *t;
                 sp.search_mode = SearchMode::MoveTime;
-                self.search.send(SearchControl::Start(sp));
+                self.search
+                    .send(SearchControl::Start(sp, SearchType::Search));
             }
 
             UciReport::GoNodes(nodes) => {
                 sp.nodes = *nodes;
                 sp.search_mode = SearchMode::Nodes;
-                self.search.send(SearchControl::Start(sp));
+                self.search
+                    .send(SearchControl::Start(sp, SearchType::Search));
             }
 
             UciReport::GoGameTime(gt) => {
                 sp.game_time = *gt;
                 sp.search_mode = SearchMode::GameTime;
-                self.search.send(SearchControl::Start(sp));
+                self.search
+                    .send(SearchControl::Start(sp, SearchType::Search));
             }
+
+            UciReport::Puzzle => {
+                let path = env::current_dir().unwrap();
+                let formatted_path = format!("{}/../sorted_puzzles.csv", path.display());
+
+                match Puzzle::read_puzzles_from_csv(&formatted_path) {
+                    Ok(puzzles) => {
+                        for puzzle in puzzles {
+                            self.solve_puzzle(puzzle, sp);
+                        }
+                    }
+                    Err(e) => println!("Error reading puzzles from file: {}", e),
+                };
+
+
+            },
 
             UciReport::Quit => self.quit(),
             UciReport::Stop => self.search.send(SearchControl::Stop),

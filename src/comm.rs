@@ -4,9 +4,9 @@ use crossbeam_channel::Sender;
 
 use crate::{
     board::Board,
-    engine::defs::{EngineOption, Information},
+    engine::defs::Information,
     movegen::defs::Move,
-    search::defs::{SearchCurrentMove, SearchStats, SearchSummary},
+    search::defs::{PerftSummary, SearchCurrentMove, SearchStats, SearchSummary},
 };
 
 use self::uci::UciReport;
@@ -38,7 +38,8 @@ pub enum CommControl {
     SearchStats(SearchStats),          // Transmit search Statistics.
     InfoString(String),                // Transmit general information.
     BestMove(Move),                    // Transmit the engine's best move.
-
+    PerftScore(PerftSummary),          // Transmit perft score
+    SolvePuzzles,
     // Output to screen when running in a terminal window.
     PrintBoard,   // PrintBoard,
     PrintHistory, // PrintHistory,
