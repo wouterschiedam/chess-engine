@@ -1,0 +1,44 @@
+pub type Bitboard = u64;
+pub type Piece = usize;
+pub type Side = usize;
+pub type Square = usize;
+
+pub struct About;
+impl About {
+    pub const ENGINE: &'static str = "Zepzeper's chess engine";
+    pub const AUTHOR: &'static str = "Zepzeper";
+    pub const VERSION: &'static str = env!("CARGO_PKG_VERSION");
+}
+
+pub struct Sides;
+impl Sides {
+    pub const WHITE: Side = 0;
+    pub const BLACK: Side = 1;
+    pub const BOTH: Side = 2;
+}
+
+pub const FEN_START_POSITION: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
+pub const FEN_KIWIPETE_POSITION: &str = "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1";
+
+pub struct NrOf;
+impl NrOf {
+    pub const PIECE_TYPES: Piece = 6;
+    pub const SQUARES: Square = 64;
+    pub const FILES: usize = 8;
+    pub const RANKS: usize = 8;
+}
+
+pub struct Castling;
+impl Castling {
+    pub const WK: u8 = 1;
+    pub const WQ: u8 = 2;
+    pub const BK: u8 = 4;
+    pub const BQ: u8 = 8;
+    pub const ALL: u8 = 15;
+}
+
+pub const EMPTY: u64 = 0;
+pub const MAX_GAME_MOVES: usize = 2048;
+pub const MAXLEGAL_MOVES: u8 = 255;
+pub const MAX_PLY: i8 = 125;
+pub const MAX_MOVE_RULE: u8 = 100; // 50/75 move rule
