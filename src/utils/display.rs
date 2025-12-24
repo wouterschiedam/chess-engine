@@ -1,8 +1,5 @@
 use crate::{
-    board::{
-        Board,
-        types::Pieces,
-    },
+    board::{Board, types::Pieces},
     defs::{Bitboard, NrOf, Sides},
 };
 
@@ -97,4 +94,3 @@ fn put_character_on_square(bitboard: Bitboard, ascii_board: &mut AsciiBoard, cha
         }
     }
 }
-

@@ -1,7 +1,21 @@
 use std::ops::RangeInclusive;
 
-use crate::defs::{Bitboard, Castling, NrOf, Piece, Side, Sides, Square, EMPTY, FEN_START_POSITION, MAX_GAME_MOVES, MAX_MOVE_RULE};
-use super::types::{Files, Pieces, Ranks, Squares, BB_SQUARES, SQUARE_NAME};
+use super::types::{BB_SQUARES, Files, Pieces, Ranks, SQUARE_NAME, Squares};
+use crate::{
+    board::bitboard::BitboardIter,
+    defs::{
+        Bitboard, Castling, EMPTY, FEN_START_POSITION, MAX_GAME_MOVES, MAX_MOVE_RULE, NrOf, Piece,
+        Side, Sides, Square,
+    },
+    movegen::{
+        Move,
+        attacks::{
+            get_bishop_attacks, get_king_attacks, get_knight_attacks, get_pawn_attacks,
+            get_queen_attacks, get_rook_attacks,
+        },
+        moves::MoveInfo,
+    },
+};
 
 #[derive(Clone)]
 pub struct GameState {
@@ -127,6 +141,334 @@ impl Board {
 
     pub fn get_piece_on_square(&self, square: Square) -> Piece {
         self.piece_list[square]
+    }
+
+    // ============================================================================
+    // CHECK DETECTION
+    // ============================================================================
+
+    /// Check if a square is attacked by the given side
+    ///
+    /// This function checks if any piece of the attacking side can attack
+    /// the target square. Used for check detection and castling validation.
+    ///
+    /// # Arguments
+    /// * `square` - The square to check
+    /// * `by_side` - The side that might be attacking (0=white, 1=black)
+    ///
+    /// # Returns
+    /// `true` if the square is attacked by any piece of the given side
+    pub fn is_square_attacked(&self, square: Square, by_side: Side) -> bool {
+        let enemy_pieces = self.bb_pieces[by_side];
+        let occupancy = self.get_occupancy();
+
+        // Check pawn attacks
+        let pawn_attacks = get_pawn_attacks(square, by_side);
+        if (pawn_attacks & enemy_pieces[Pieces::PAWN]) != 0 {
+            return true;
+        }
+
+        // Check knight attacks
+        let knight_attacks = get_knight_attacks(square);
+        if (knight_attacks & enemy_pieces[Pieces::KNIGHT]) != 0 {
+            return true;
+        }
+
+        // Check king attacks
+        let king_attacks = get_king_attacks(square);
+        if (king_attacks & enemy_pieces[Pieces::KING]) != 0 {
+            return true;
+        }
+
+        // Check rook/queen attacks (ranks and files)
+        let rook_attacks = get_rook_attacks(square, occupancy);
+        if (rook_attacks & (enemy_pieces[Pieces::ROOK] | enemy_pieces[Pieces::QUEEN])) != 0 {
+            return true;
+        }
+
+        // Check bishop/queen attacks (diagonals)
+        let bishop_attacks = get_bishop_attacks(square, occupancy);
+        if (bishop_attacks & (enemy_pieces[Pieces::BISHOP] | enemy_pieces[Pieces::QUEEN])) != 0 {
+            return true;
+        }
+
+        false
+    }
+
+    /// Check if the given side's king is in check
+    ///
+    /// This function finds the king square and checks if it's attacked
+    /// by any enemy piece.
+    ///
+    /// # Arguments
+    /// * `side` - The side to check (0=white, 1=black)
+    ///
+    /// # Returns
+    /// `true` if the king is in check
+    pub fn is_in_check(&self, side: Side) -> bool {
+        // Find the king square
+        let king_bb = self.bb_pieces[side][Pieces::KING];
+        if king_bb == 0 {
+            // No king found (shouldn't happen in valid positions, but handle gracefully)
+            return false;
+        }
+
+        // Get the first (and should be only) king square
+        let king_square = BitboardIter::new(king_bb)
+            .next()
+            .expect("King bitboard should have exactly one bit set");
+
+        // Check if the king square is attacked by the enemy
+        let enemy_side = 1 - side;
+        self.is_square_attacked(king_square, side)
+    }
+
+    pub fn make_move(&mut self, mv: &Move) -> MoveInfo {
+        let side: Side = self.gamestate.active_side;
+        let from = mv.from;
+        let to = mv.to;
+
+        // Store information for undo
+        let mut move_info = MoveInfo {
+            captured_piece: mv.capture,
+            captured_square: if mv.flags.is_capture { Some(to) } else { None },
+            previous_castling: self.gamestate.castling,
+            previous_enpassant: self.gamestate.enpassant,
+            previous_halfmove_clock: self.gamestate.halfclockmove,
+            promotion_piece: mv.promotion,
+            rook_from: None,
+            rook_to: None,
+            en_passant_captured_square: None,
+        };
+
+        // ========== REMOVE PIECE FROM SOURCE SQUARE ==========
+        // Clear piece from source square in bitboards
+        let from_mask = 1u64 << from;
+        self.bb_pieces[side][mv.piece] &= !from_mask;
+        self.bb_side[side] &= !from_mask;
+        self.piece_list[from] = Pieces::NONE;
+
+        // ========== HANDLE CAPTURES ==========
+        // Note: En passant is handled separately below, so skip regular capture handling for EP
+        if mv.flags.is_capture && !mv.flags.is_en_passant {
+            if let Some(captured_piece) = mv.capture {
+                // Validate captured_piece is a valid piece type (0-5, not Pieces::NONE which is 6)
+                if captured_piece < NrOf::PIECE_TYPES {
+                    // Remove captured piece from bitboards
+                    let to_mask = 1u64 << to;
+                    self.bb_pieces[1 - side][captured_piece] &= !to_mask;
+                    self.bb_side[1 - side] &= !to_mask;
+                    self.piece_list[to] = Pieces::NONE;
+                }
+            }
+        }
+
+        // ========== HANDLE EN PASSANT ==========
+        if mv.flags.is_en_passant {
+            // En passant: captured pawn is on the square behind the destination
+            let captured_square = if side == Sides::WHITE {
+                to - 8 // White captures down
+            } else {
+                to + 8 // Black captures up
+            };
+
+            move_info.en_passant_captured_square = Some(captured_square);
+
+            // Remove captured pawn
+            let captured_mask = 1u64 << captured_square;
+            self.bb_pieces[1 - side][Pieces::PAWN] &= !captured_mask;
+            self.bb_side[1 - side] &= !captured_mask;
+            self.piece_list[captured_square] = Pieces::NONE;
+        }
+
+        // ========== PLACE PIECE ON DESTINATION SQUARE ==========
+        let to_mask = 1u64 << to;
+        let piece_to_place = mv.promotion.unwrap_or(mv.piece);
+
+        self.bb_pieces[side][piece_to_place] |= to_mask;
+        self.bb_side[side] |= to_mask;
+        self.piece_list[to] = piece_to_place;
+
+        // ========== HANDLE CASTLING ==========
+        if mv.flags.is_castling {
+            // Determine rook squares based on side and castling direction
+            let (rook_from, rook_to) = if side == Sides::WHITE {
+                if to == Squares::G1 {
+                    // Kingside: rook from H1 to F1
+                    (Squares::H1, Squares::F1)
+                } else {
+                    // Queenside: rook from A1 to D1
+                    (Squares::A1, Squares::D1)
+                }
+            } else {
+                // Black side
+                if to == Squares::G8 {
+                    // Kingside: rook from H8 to F8
+                    (Squares::H8, Squares::F8)
+                } else {
+                    // Queenside: rook from A8 to D8
+                    (Squares::A8, Squares::D8)
+                }
+            };
+
+            move_info.rook_from = Some(rook_from);
+            move_info.rook_to = Some(rook_to);
+
+            // Move rook
+            let rook_from_mask = 1u64 << rook_from;
+            let rook_to_mask = 1u64 << rook_to;
+
+            self.bb_pieces[side][Pieces::ROOK] &= !rook_from_mask;
+            self.bb_pieces[side][Pieces::ROOK] |= rook_to_mask;
+            self.bb_side[side] &= !rook_from_mask;
+            self.bb_side[side] |= rook_to_mask;
+            self.piece_list[rook_from] = Pieces::NONE;
+            self.piece_list[rook_to] = Pieces::ROOK;
+        }
+
+        // ========== UPDATE CASTLING RIGHTS ==========
+        // If king moves, lose all castling rights
+        if mv.piece == Pieces::KING {
+            if side == Sides::WHITE {
+                self.gamestate.castling &= !(Castling::WK | Castling::WQ);
+            } else {
+                self.gamestate.castling &= !(Castling::BK | Castling::BQ);
+            }
+        }
+
+        // If rook moves from starting square, lose that castling right
+        if mv.piece == Pieces::ROOK {
+            if side == Sides::WHITE {
+                if from == Squares::H1 {
+                    self.gamestate.castling &= !Castling::WK;
+                } else if from == Squares::A1 {
+                    self.gamestate.castling &= !Castling::WQ;
+                }
+            } else {
+                // Black side
+                if from == Squares::H8 {
+                    self.gamestate.castling &= !Castling::BK;
+                } else if from == Squares::A8 {
+                    self.gamestate.castling &= !Castling::BQ;
+                }
+            }
+        }
+
+        // If enemy rook is captured, lose that castling right
+        if mv.flags.is_capture {
+            if to == Squares::H1 {
+                self.gamestate.castling &= !Castling::WK;
+            } else if to == Squares::A1 {
+                self.gamestate.castling &= !Castling::WQ;
+            } else if to == Squares::H8 {
+                self.gamestate.castling &= !Castling::BK;
+            } else if to == Squares::A8 {
+                self.gamestate.castling &= !Castling::BQ;
+            }
+        }
+
+        // ========== UPDATE EN PASSANT ==========
+        if mv.flags.is_double_push {
+            // Set en passant square (square behind the pawn that just moved)
+            let ep_square = if side == Sides::WHITE {
+                to - 8 // Square behind white pawn
+            } else {
+                to + 8 // Square behind black pawn
+            };
+            self.gamestate.enpassant = Some(ep_square as u8);
+        } else {
+            self.gamestate.enpassant = None;
+        }
+
+        // ========== UPDATE HALFMOVE CLOCK ==========
+        if mv.flags.is_capture || mv.piece == Pieces::PAWN {
+            // Reset on capture or pawn move
+            self.gamestate.halfclockmove = 0;
+        } else {
+            self.gamestate.halfclockmove += 1;
+        }
+
+        // ========== UPDATE FULLMOVE NUMBER ==========
+        if side == Sides::BLACK {
+            self.gamestate.fullmovenumber += 1;
+        }
+
+        // ========== SWITCH ACTIVE SIDE ==========
+        self.gamestate.active_side = 1 - side;
+
+        move_info
+    }
+
+    /// Restores the board to the state before the move was made
+    pub fn unmake_move(&mut self, mv: &Move, move_info: &MoveInfo) {
+        let side = 1 - self.gamestate.active_side; // Previous side (before switch)
+        let from = mv.from;
+        let to = mv.to;
+
+        // ========== SWITCH ACTIVE SIDE BACK ==========
+        self.gamestate.active_side = side;
+
+        // ========== RESTORE FULLMOVE NUMBER ==========
+        if side == Sides::BLACK {
+            self.gamestate.fullmovenumber -= 1;
+        }
+
+        // ========== RESTORE HALFMOVE CLOCK ==========
+        self.gamestate.halfclockmove = move_info.previous_halfmove_clock;
+
+        // ========== RESTORE EN PASSANT ==========
+        self.gamestate.enpassant = move_info.previous_enpassant;
+
+        // ========== RESTORE CASTLING RIGHTS ==========
+        self.gamestate.castling = move_info.previous_castling;
+
+        // ========== REMOVE PIECE FROM DESTINATION SQUARE ==========
+        let to_mask = 1u64 << to;
+        let piece_to_remove = move_info.promotion_piece.unwrap_or(mv.piece);
+
+        self.bb_pieces[side][piece_to_remove] &= !to_mask;
+        self.bb_side[side] &= !to_mask;
+        self.piece_list[to] = Pieces::NONE;
+
+        // ========== RESTORE PIECE TO SOURCE SQUARE ==========
+        let from_mask = 1u64 << from;
+        self.bb_pieces[side][mv.piece] |= from_mask;
+        self.bb_side[side] |= from_mask;
+        self.piece_list[from] = mv.piece;
+
+        // ========== RESTORE CASTLING ROOK ==========
+        if mv.flags.is_castling {
+            if let (Some(rook_from), Some(rook_to)) = (move_info.rook_from, move_info.rook_to) {
+                let rook_from_mask = 1u64 << rook_from;
+                let rook_to_mask = 1u64 << rook_to;
+
+                self.bb_pieces[side][Pieces::ROOK] &= !rook_to_mask;
+                self.bb_pieces[side][Pieces::ROOK] |= rook_from_mask;
+                self.bb_side[side] &= !rook_to_mask;
+                self.bb_side[side] |= rook_from_mask;
+                self.piece_list[rook_to] = Pieces::NONE;
+                self.piece_list[rook_from] = Pieces::ROOK;
+            }
+        }
+
+        // ========== RESTORE CAPTURED PIECE ==========
+        if mv.flags.is_capture {
+            if let Some(captured_piece) = move_info.captured_piece {
+                // Validate captured_piece is a valid piece type (0-5, not Pieces::NONE which is 6)
+                if captured_piece < NrOf::PIECE_TYPES {
+                    let captured_square = if mv.flags.is_en_passant {
+                        move_info.en_passant_captured_square.unwrap()
+                    } else {
+                        to
+                    };
+
+                    let captured_mask = 1u64 << captured_square;
+                    self.bb_pieces[1 - side][captured_piece] |= captured_mask;
+                    self.bb_side[1 - side] |= captured_mask;
+                    self.piece_list[captured_square] = captured_piece;
+                }
+            }
+        }
     }
 
     pub fn read_fen(&mut self, fen_string: Option<&str>) -> FenResult {
@@ -357,18 +699,21 @@ fn fullmovenumber(board: &mut Board, part: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::defs::{Castling, FEN_START_POSITION, FEN_KIWIPETE_POSITION, Sides};
     use crate::board::types::Pieces;
+    use crate::defs::{Castling, FEN_KIWIPETE_POSITION, FEN_START_POSITION, Sides};
 
     // Test positions from chessprogrammingwiki and common test suites
     const FEN_EMPTY_BOARD: &str = "8/8/8/8/8/8/8/8 w - - 0 1";
-    const FEN_EN_PASSANT_WHITE: &str = "rnbqkbnr/pppp1ppp/8/4p3/3P4/8/PPP1PPPP/RNBQKBNR b KQkq d3 0 2";
-    const FEN_EN_PASSANT_BLACK: &str = "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR w KQkq e3 0 1";
+    const FEN_EN_PASSANT_WHITE: &str =
+        "rnbqkbnr/pppp1ppp/8/4p3/3P4/8/PPP1PPPP/RNBQKBNR b KQkq d3 0 2";
+    const FEN_EN_PASSANT_BLACK: &str =
+        "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR w KQkq e3 0 1";
     const FEN_CASTLING_RIGHTS: &str = "r3k2r/8/8/8/8/8/8/R3K2R w KQkq - 0 1";
     const FEN_NO_CASTLING: &str = "r3k2r/8/8/8/8/8/8/R3K2R w - - 0 1";
     const FEN_RUY_LOPEZ: &str = "r1bqkbnr/pppp1ppp/2n5/1B2p3/4P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4";
     const FEN_PROMOTION_POSITION: &str = "8/PPPP4/8/8/8/8/pppp4/8 w - - 0 1";
-    const FEN_MIDDLE_GAME: &str = "r2qkb1r/pp2pppp/2n2n2/3p4/2PP4/2N2N2/PP2PPPP/R2QKB1R w KQkq - 4 5";
+    const FEN_MIDDLE_GAME: &str =
+        "r2qkb1r/pp2pppp/2n2n2/3p4/2PP4/2N2N2/PP2PPPP/R2QKB1R w KQkq - 4 5";
     const FEN_ENDGAME: &str = "8/8/8/8/8/8/4K3/4k3 w - - 0 1";
     const FEN_COMPLEX: &str = "r3k2r/Pppp1ppp/1b3nbN/nP6/BBP1P3/q4N2/Pp1P2PP/R2Q1RK1 w kq - 0 1";
 
@@ -377,7 +722,11 @@ mod tests {
         assert!(
             (board.bb_pieces[side][piece] & bit) != 0,
             "Expected {:?} {:?} at square {}, but bitboard is {:064b}",
-            if side == Sides::WHITE { "White" } else { "Black" },
+            if side == Sides::WHITE {
+                "White"
+            } else {
+                "Black"
+            },
             piece,
             square,
             board.bb_pieces[side][piece]
@@ -389,7 +738,11 @@ mod tests {
         assert!(
             (board.bb_pieces[side][piece] & bit) == 0,
             "Expected no {:?} {:?} at square {}",
-            if side == Sides::WHITE { "White" } else { "Black" },
+            if side == Sides::WHITE {
+                "White"
+            } else {
+                "Black"
+            },
             piece,
             square
         );
@@ -398,37 +751,37 @@ mod tests {
     #[test]
     fn test_starting_position() {
         let board = Board::build(Some(FEN_START_POSITION));
-        
+
         // Check white pieces
-        assert_piece_at_square(&board, Sides::WHITE, Pieces::ROOK, 0);   // a1
+        assert_piece_at_square(&board, Sides::WHITE, Pieces::ROOK, 0); // a1
         assert_piece_at_square(&board, Sides::WHITE, Pieces::KNIGHT, 1); // b1
         assert_piece_at_square(&board, Sides::WHITE, Pieces::BISHOP, 2); // c1
-        assert_piece_at_square(&board, Sides::WHITE, Pieces::QUEEN, 3);  // d1
-        assert_piece_at_square(&board, Sides::WHITE, Pieces::KING, 4);    // e1
-        assert_piece_at_square(&board, Sides::WHITE, Pieces::BISHOP, 5);  // f1
+        assert_piece_at_square(&board, Sides::WHITE, Pieces::QUEEN, 3); // d1
+        assert_piece_at_square(&board, Sides::WHITE, Pieces::KING, 4); // e1
+        assert_piece_at_square(&board, Sides::WHITE, Pieces::BISHOP, 5); // f1
         assert_piece_at_square(&board, Sides::WHITE, Pieces::KNIGHT, 6); // g1
-        assert_piece_at_square(&board, Sides::WHITE, Pieces::ROOK, 7);    // h1
-        
+        assert_piece_at_square(&board, Sides::WHITE, Pieces::ROOK, 7); // h1
+
         // Check white pawns
         for i in 8..16 {
             assert_piece_at_square(&board, Sides::WHITE, Pieces::PAWN, i);
         }
-        
+
         // Check black pieces
-        assert_piece_at_square(&board, Sides::BLACK, Pieces::ROOK, 56);   // a8
+        assert_piece_at_square(&board, Sides::BLACK, Pieces::ROOK, 56); // a8
         assert_piece_at_square(&board, Sides::BLACK, Pieces::KNIGHT, 57); // b8
         assert_piece_at_square(&board, Sides::BLACK, Pieces::BISHOP, 58); // c8
-        assert_piece_at_square(&board, Sides::BLACK, Pieces::QUEEN, 59);  // d8
-        assert_piece_at_square(&board, Sides::BLACK, Pieces::KING, 60);   // e8
+        assert_piece_at_square(&board, Sides::BLACK, Pieces::QUEEN, 59); // d8
+        assert_piece_at_square(&board, Sides::BLACK, Pieces::KING, 60); // e8
         assert_piece_at_square(&board, Sides::BLACK, Pieces::BISHOP, 61); // f8
         assert_piece_at_square(&board, Sides::BLACK, Pieces::KNIGHT, 62); // g8
-        assert_piece_at_square(&board, Sides::BLACK, Pieces::ROOK, 63);   // h8
-        
+        assert_piece_at_square(&board, Sides::BLACK, Pieces::ROOK, 63); // h8
+
         // Check black pawns
         for i in 48..56 {
             assert_piece_at_square(&board, Sides::BLACK, Pieces::PAWN, i);
         }
-        
+
         // Check game state
         assert_eq!(board.gamestate.active_side, Sides::WHITE);
         assert_eq!(board.gamestate.castling, Castling::ALL);
@@ -440,16 +793,16 @@ mod tests {
     #[test]
     fn test_kiwipete_position() {
         let board = Board::build(Some(FEN_KIWIPETE_POSITION));
-        
+
         // Kiwipete is a well-known test position
         // FEN: "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R"
         // Verify some key pieces
-        assert_piece_at_square(&board, Sides::WHITE, Pieces::KING, 4);    // e1
-        assert_piece_at_square(&board, Sides::BLACK, Pieces::KING, 60);   // e8
-        assert_piece_at_square(&board, Sides::WHITE, Pieces::QUEEN, 21);  // f3
+        assert_piece_at_square(&board, Sides::WHITE, Pieces::KING, 4); // e1
+        assert_piece_at_square(&board, Sides::BLACK, Pieces::KING, 60); // e8
+        assert_piece_at_square(&board, Sides::WHITE, Pieces::QUEEN, 21); // f3
         // Black queen is at e7 (square 52), not 53
-        assert_piece_at_square(&board, Sides::BLACK, Pieces::QUEEN, 52);  // e7
-        
+        assert_piece_at_square(&board, Sides::BLACK, Pieces::QUEEN, 52); // e7
+
         // Check game state
         assert_eq!(board.gamestate.active_side, Sides::WHITE);
         assert_eq!(board.gamestate.castling, Castling::ALL);
@@ -458,14 +811,14 @@ mod tests {
     #[test]
     fn test_empty_board() {
         let board = Board::build(Some(FEN_EMPTY_BOARD));
-        
+
         // All bitboards should be empty
         for side in 0..Sides::BOTH {
             for piece in 0..NrOf::PIECE_TYPES {
                 assert_eq!(board.bb_pieces[side][piece], 0);
             }
         }
-        
+
         assert_eq!(board.gamestate.active_side, Sides::WHITE);
         assert_eq!(board.gamestate.castling, 0);
     }
@@ -473,7 +826,7 @@ mod tests {
     #[test]
     fn test_en_passant_white_target() {
         let board = Board::build(Some(FEN_EN_PASSANT_WHITE));
-        
+
         // d3 is the en passant target square (square 19)
         assert_eq!(board.gamestate.enpassant, Some(19));
         assert_eq!(board.gamestate.active_side, Sides::BLACK);
@@ -482,7 +835,7 @@ mod tests {
     #[test]
     fn test_en_passant_black_target() {
         let board = Board::build(Some(FEN_EN_PASSANT_BLACK));
-        
+
         // e3 is the en passant target square (square 20)
         assert_eq!(board.gamestate.enpassant, Some(20));
         assert_eq!(board.gamestate.active_side, Sides::WHITE);
@@ -499,7 +852,7 @@ mod tests {
     #[test]
     fn test_castling_rights_all() {
         let board = Board::build(Some(FEN_CASTLING_RIGHTS));
-        
+
         assert_eq!(board.gamestate.castling, Castling::ALL);
         assert_eq!(board.gamestate.active_side, Sides::WHITE);
     }
@@ -507,20 +860,20 @@ mod tests {
     #[test]
     fn test_no_castling_rights() {
         let board = Board::build(Some(FEN_NO_CASTLING));
-        
+
         assert_eq!(board.gamestate.castling, 0);
     }
 
     #[test]
     fn test_ruy_lopez_position() {
         let board = Board::build(Some(FEN_RUY_LOPEZ));
-        
+
         // Verify key pieces in Ruy Lopez position
         assert_piece_at_square(&board, Sides::WHITE, Pieces::BISHOP, 33); // b5
         assert_piece_at_square(&board, Sides::WHITE, Pieces::KNIGHT, 21); // f3
         assert_piece_at_square(&board, Sides::BLACK, Pieces::KNIGHT, 42); // c6
-        assert_piece_at_square(&board, Sides::BLACK, Pieces::PAWN, 36);  // e5
-        
+        assert_piece_at_square(&board, Sides::BLACK, Pieces::PAWN, 36); // e5
+
         assert_eq!(board.gamestate.active_side, Sides::WHITE);
         assert_eq!(board.gamestate.halfclockmove, 4);
         assert_eq!(board.gamestate.fullmovenumber, 4);
@@ -529,21 +882,24 @@ mod tests {
     #[test]
     fn test_endgame_position() {
         let board = Board::build(Some(FEN_ENDGAME));
-        
+
         // FEN: "8/8/8/8/8/8/4K3/4k3" means:
         // Rank 2 (squares 8-15): "4K3" = e2 has white king (square 12)
         // Rank 1 (squares 0-7): "4k3" = e1 has black king (square 4)
         assert_piece_at_square(&board, Sides::WHITE, Pieces::KING, 12); // e2
-        assert_piece_at_square(&board, Sides::BLACK, Pieces::KING, 4);  // e1
-        
+        assert_piece_at_square(&board, Sides::BLACK, Pieces::KING, 4); // e1
+
         // Verify no other pieces
         for side in 0..Sides::BOTH {
             for piece in 0..NrOf::PIECE_TYPES {
                 if piece == Pieces::KING {
                     continue;
                 }
-                assert_eq!(board.bb_pieces[side][piece], 0, 
-                    "Unexpected piece {:?} for side {:?}", piece, side);
+                assert_eq!(
+                    board.bb_pieces[side][piece], 0,
+                    "Unexpected piece {:?} for side {:?}",
+                    piece, side
+                );
             }
         }
     }
@@ -551,7 +907,7 @@ mod tests {
     #[test]
     fn test_complex_position() {
         let board = Board::build(Some(FEN_COMPLEX));
-        
+
         // This is a complex position with many pieces
         // Just verify it parses correctly
         assert_eq!(board.gamestate.active_side, Sides::WHITE);
@@ -565,16 +921,14 @@ mod tests {
         // Test that None uses default starting position
         let board1 = Board::build(None);
         let board2 = Board::build(Some(FEN_START_POSITION));
-        
+
         // Compare bitboards
         for side in 0..Sides::BOTH {
             for piece in 0..NrOf::PIECE_TYPES {
                 assert_eq!(
-                    board1.bb_pieces[side][piece],
-                    board2.bb_pieces[side][piece],
+                    board1.bb_pieces[side][piece], board2.bb_pieces[side][piece],
                     "Mismatch at side {} piece {}",
-                    side,
-                    piece
+                    side, piece
                 );
             }
         }
@@ -590,28 +944,36 @@ mod tests {
     #[test]
     fn test_invalid_fen_too_many_parts() {
         let mut board = Board::new();
-        let result = board.read_fen(Some("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1 extra"));
+        let result = board.read_fen(Some(
+            "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1 extra",
+        ));
         assert!(result.is_err());
     }
 
     #[test]
     fn test_invalid_fen_invalid_piece() {
         let mut board = Board::new();
-        let result = board.read_fen(Some("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNX w KQkq - 0 1"));
+        let result = board.read_fen(Some(
+            "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNX w KQkq - 0 1",
+        ));
         assert!(result.is_err());
     }
 
     #[test]
     fn test_invalid_fen_invalid_color() {
         let mut board = Board::new();
-        let result = board.read_fen(Some("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR x KQkq - 0 1"));
+        let result = board.read_fen(Some(
+            "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR x KQkq - 0 1",
+        ));
         assert!(result.is_err());
     }
 
     #[test]
     fn test_invalid_fen_invalid_castling() {
         let mut board = Board::new();
-        let result = board.read_fen(Some("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w XQkq - 0 1"));
+        let result = board.read_fen(Some(
+            "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w XQkq - 0 1",
+        ));
         assert!(result.is_err());
     }
 
@@ -624,7 +986,9 @@ mod tests {
 
     #[test]
     fn test_black_to_move() {
-        let board = Board::build(Some("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR b KQkq - 0 1"));
+        let board = Board::build(Some(
+            "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR b KQkq - 0 1",
+        ));
         assert_eq!(board.gamestate.active_side, Sides::BLACK);
     }
 
@@ -633,15 +997,15 @@ mod tests {
         // Only white kingside
         let board = Board::build(Some("r3k2r/8/8/8/8/8/8/R3K2R w K - 0 1"));
         assert_eq!(board.gamestate.castling, Castling::WK);
-        
+
         // Only white queenside
         let board = Board::build(Some("r3k2r/8/8/8/8/8/8/R3K2R w Q - 0 1"));
         assert_eq!(board.gamestate.castling, Castling::WQ);
-        
+
         // Only black kingside
         let board = Board::build(Some("r3k2r/8/8/8/8/8/8/R3K2R w k - 0 1"));
         assert_eq!(board.gamestate.castling, Castling::BK);
-        
+
         // Only black queenside
         let board = Board::build(Some("r3k2r/8/8/8/8/8/8/R3K2R w q - 0 1"));
         assert_eq!(board.gamestate.castling, Castling::BQ);
@@ -663,14 +1027,13 @@ mod tests {
         // Test ranks with both pieces and numbers
         let fen = "r3k2r/8/8/8/8/8/8/R3K2R w KQkq - 0 1";
         let board = Board::build(Some(fen));
-        
+
         // Verify rooks and kings are in correct positions
-        assert_piece_at_square(&board, Sides::WHITE, Pieces::ROOK, 0);   // a1
-        assert_piece_at_square(&board, Sides::WHITE, Pieces::KING, 4);   // e1
-        assert_piece_at_square(&board, Sides::WHITE, Pieces::ROOK, 7);   // h1
-        assert_piece_at_square(&board, Sides::BLACK, Pieces::ROOK, 56);  // a8
-        assert_piece_at_square(&board, Sides::BLACK, Pieces::KING, 60);   // e8
-        assert_piece_at_square(&board, Sides::BLACK, Pieces::ROOK, 63);  // h8
+        assert_piece_at_square(&board, Sides::WHITE, Pieces::ROOK, 0); // a1
+        assert_piece_at_square(&board, Sides::WHITE, Pieces::KING, 4); // e1
+        assert_piece_at_square(&board, Sides::WHITE, Pieces::ROOK, 7); // h1
+        assert_piece_at_square(&board, Sides::BLACK, Pieces::ROOK, 56); // a8
+        assert_piece_at_square(&board, Sides::BLACK, Pieces::KING, 60); // e8
+        assert_piece_at_square(&board, Sides::BLACK, Pieces::ROOK, 63); // h8
     }
 }
-

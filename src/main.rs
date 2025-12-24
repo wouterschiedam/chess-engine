@@ -1,3 +1,6 @@
+#![allow(dead_code)]
+#![allow(unused)]
+
 mod board;
 mod defs;
 mod cli;
@@ -16,6 +19,10 @@ fn main() {
         
         Commands::Show { fen } => {
             cli::commands::show_position(Some(&fen));
+        }
+        
+        Commands::Perft { fen, depth, verbose, divide, compare, known, drill, position } => {
+            cli::commands::run_perft(fen.as_deref(), depth, verbose, divide, compare, known, drill, position);
         }
     }
 }

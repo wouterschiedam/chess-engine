@@ -41,6 +41,7 @@ pub struct Ranks;
 impl Ranks {
     pub const R1: usize = 0;
     pub const R2: usize = 1;
+    pub const R3: usize = 2;
     pub const R4: usize = 3;
     pub const R5: usize = 4;
     pub const R7: usize = 6;
