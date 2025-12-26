@@ -1,6 +1,6 @@
 use crate::defs::{Piece, Square};
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct MoveFlags {
     pub is_capture: bool,
     pub is_promotion: bool,

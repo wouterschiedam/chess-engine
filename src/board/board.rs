@@ -75,6 +75,19 @@ impl Board {
         let pieces_per_side = self.init_pieces_per_side_bb();
         self.bb_side[Sides::WHITE] = pieces_per_side.0;
         self.bb_side[Sides::BLACK] = pieces_per_side.1;
+        self.init_piece_list();
+    }
+
+    fn init_piece_list(&mut self) {
+        self.piece_list = [Pieces::NONE; NrOf::SQUARES];
+        for side in 0..Sides::BOTH {
+            for piece in 0..NrOf::PIECE_TYPES {
+                let bb = self.bb_pieces[side][piece];
+                for square in BitboardIter::new(bb) {
+                    self.piece_list[square] = piece;
+                }
+            }
+        }
     }
 
     fn init_pieces_per_side_bb(&self) -> (Bitboard, Bitboard) {
@@ -163,7 +176,7 @@ impl Board {
         let occupancy = self.get_occupancy();
 
         // Check pawn attacks
-        let pawn_attacks = get_pawn_attacks(square, by_side);
+        let pawn_attacks = get_pawn_attacks(square, 1 - by_side);
         if (pawn_attacks & enemy_pieces[Pieces::PAWN]) != 0 {
             return true;
         }
@@ -220,7 +233,7 @@ impl Board {
 
         // Check if the king square is attacked by the enemy
         let enemy_side = 1 - side;
-        self.is_square_attacked(king_square, side)
+        self.is_square_attacked(king_square, enemy_side)
     }
 
     pub fn make_move(&mut self, mv: &Move) -> MoveInfo {

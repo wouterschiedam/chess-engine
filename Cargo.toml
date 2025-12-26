@@ -5,6 +5,9 @@ edition = "2024"
 
 [dependencies]
 clap = { version = "4.5", features = ["derive"] }
+fastrand = "2.1"
+ratatui = "0.28"
+crossterm = "0.28"
 
 [lints.clippy]
 collapsible_if = "allow"

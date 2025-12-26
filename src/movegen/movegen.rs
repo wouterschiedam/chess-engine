@@ -548,9 +548,9 @@ pub fn generate_pawn_moves(board: &Board, side: Side, moves: &mut Vec<Move>) {
     // Determine ranks and direction based on side
     // Ranks are 0-indexed: R1=0, R2=1, ..., R8=7
     let (starting_rank, ep_capture_rank) = if side == Sides::WHITE {
-        (Ranks::R2, Ranks::R4) // White: starts on rank 2, captures EP from rank 4 (one rank below EP square on rank 5)
+        (Ranks::R2, Ranks::R5) // White: starts on rank 2, captures EP from rank 5
     } else {
-        (Ranks::R7, Ranks::R3) // Black: starts on rank 7, captures EP from rank 3 (one rank above EP square on rank 2)
+        (Ranks::R7, Ranks::R4) // Black: starts on rank 7, captures EP from rank 4
     };
 
     // Iterate over each pawn square using the bitboard iterator

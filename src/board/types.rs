@@ -1,4 +1,4 @@
-use crate::defs::{Bitboard, NrOf, Piece, Square, EMPTY};
+use crate::defs::{Bitboard, EMPTY, NrOf, Piece, Square};
 
 #[rustfmt::skip]
 pub const SQUARE_NAME: [&str; NrOf::SQUARES] = [
@@ -110,7 +110,6 @@ const fn init_bb_squares() -> TBBSquares {
     bb_squares
 }
 
-
 // 8  . . . . . . . .
 // 7  . . . . . . . .
 // 6  . . . . . . . .
@@ -121,18 +120,17 @@ const fn init_bb_squares() -> TBBSquares {
 // 1  . . . . . . . .
 //    A B C D E F G H
 const fn init_bb_ranks() -> TBBRanks {
-   pub const BB_RANK_1: Bitboard = 0xFF;
-   let mut bb_ranks: TBBRanks = [EMPTY; NrOf::RANKS];
+    pub const BB_RANK_1: Bitboard = 0xFF;
+    let mut bb_ranks: TBBRanks = [EMPTY; NrOf::RANKS];
 
-   let mut i = 0;
-   while i < NrOf::RANKS {
-       bb_ranks[i] = BB_RANK_1 << (8 * i);
-       i += 1;
-   }
+    let mut i = 0;
+    while i < NrOf::RANKS {
+        bb_ranks[i] = BB_RANK_1 << (8 * i);
+        i += 1;
+    }
 
-   bb_ranks
+    bb_ranks
 }
-
 
 // 8  . . . . X . . .
 // 7  . . . . X . . .
@@ -155,4 +153,3 @@ const fn init_bb_files() -> TBBFiles {
 
     bb_files
 }
-

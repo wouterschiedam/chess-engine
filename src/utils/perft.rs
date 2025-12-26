@@ -7,32 +7,11 @@
 use crate::board::types::Pieces;
 use crate::board::{Board, types::SQUARE_NAME};
 use crate::movegen::{Move, generate_legal_moves};
+use crate::utils::display::format_move;
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
 use std::process::{Command, Stdio};
 use std::time::Instant;
-
-// ============================================================================
-// UTILITY FUNCTIONS
-// ============================================================================
-
-fn format_move(mv: &Move) -> String {
-    let from = SQUARE_NAME[mv.from];
-    let to = SQUARE_NAME[mv.to];
-
-    if let Some(promo) = mv.promotion {
-        let promo_char = match promo {
-            Pieces::QUEEN => "q",
-            Pieces::ROOK => "r",
-            Pieces::BISHOP => "b",
-            Pieces::KNIGHT => "n",
-            _ => "",
-        };
-        format!("{}{}{}", from, to, promo_char)
-    } else {
-        format!("{}{}", from, to)
-    }
-}
 
 /// Convert Board to FEN string
 fn board_to_fen(board: &Board) -> String {
@@ -440,6 +419,7 @@ pub fn drill_down(
         Some(mv) => {
             println!("Drilling down into move: {}", move_str);
             println!("After {}:", move_str);
+            println!("FEN: {}", board_to_fen(board));
             println!("{}", "=".repeat(50));
 
             let move_info = board.make_move(mv);

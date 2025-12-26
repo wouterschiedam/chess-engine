@@ -6,7 +6,7 @@ use clap::{Parser, Subcommand};
 #[command(about = "A chess engine with CLI interface for testing and debugging", long_about = None)]
 pub struct Cli {
     #[command(subcommand)]
-    pub command: Commands,
+    pub command: Option<Commands>,
 }
 
 #[derive(Subcommand)]
@@ -119,6 +119,30 @@ pub enum Commands {
         #[arg(long)]
         position: bool,
     },
+
+    /// Run UCI protocol (Universal Chess Interface)
+    ///
+    /// This mode allows the engine to communicate with chess GUIs and other tools
+    /// using the standard UCI protocol.
+    ///
+    /// UCI is the most common protocol for chess engines and is supported by
+    /// most chess GUIs (e.g., Arena, ChessBase, Cute Chess).
+    ///
+    /// Note: Running the engine without any arguments will also start UCI mode by default.
+    Uci,
+
+    /// Run tournament mode - engine vs engine matches with TUI display
+    ///
+    /// Play your engine against itself or another version to test and compare.
+    /// Features include:
+    ///   - Interactive setup menu for configuration
+    ///   - Real-time game display with ASCII board
+    ///   - Move list with history
+    ///   - Tournament statistics and standings
+    ///   - Multiple game formats (gauntlet, round-robin)
+    ///   - Time control options (bullet, blitz, rapid, custom)
+    ///   - Compare different engine versions (old vs new)
+    Tournament,
 }
 
 impl Cli {
