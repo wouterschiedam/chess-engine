@@ -91,20 +91,35 @@ pub fn run_tournament() {
     app.search_depth = config.3;
     app.time_control = config.4;
     app.tournament_format = config.5;
-    app.start();
-
-    let result = run_tournament_logic(&mut terminal, &mut app);
-
-    let _ = disable_raw_mode();
-    let _ = execute!(
-        terminal.backend_mut(),
-        LeaveAlternateScreen,
-        DisableMouseCapture
-    );
-    let _ = terminal.show_cursor();
-
-    if let Err(err) = result {
-        eprintln!("Error: {}", err);
+    // config.6 is file_path, config.7 is mode
+    let mode = config.7;
+    
+    match mode {
+        crate::tui::setup::GameMode::EngineVsEngine => {
+            app.start();
+            let result = run_tournament_logic(&mut terminal, &mut app);
+            if let Err(err) = result {
+                eprintln!("Error: {}", err);
+            }
+        }
+        crate::tui::setup::GameMode::Replay => {
+            if let Err(e) = app.load_replay_from_file(&config.6) {
+                // If file not found, we could show an error, but for now let's just not start replay
+                // and maybe return to setup or just log it if we could.
+            }
+            let result = run_tournament_logic(&mut terminal, &mut app);
+            if let Err(err) = result {
+                eprintln!("Error: {}", err);
+            }
+        }
+        _ => {
+            // Placeholder for PvP and PvE
+            app.start();
+            let result = run_tournament_logic(&mut terminal, &mut app);
+            if let Err(err) = result {
+                eprintln!("Error: {}", err);
+            }
+        }
     }
 }
 
@@ -276,10 +291,18 @@ fn run_tournament_logic<B: ratatui::backend::Backend>(
                                 app.reset();
                             }
                             KeyCode::Char('+') | KeyCode::Char('=') => {
-                                app.speed = app.speed.saturating_sub(100).max(100);
+                                if app.speed <= 100 {
+                                    app.speed = app.speed.saturating_sub(10);
+                                } else {
+                                    app.speed = app.speed.saturating_sub(100);
+                                }
                             }
                             KeyCode::Char('-') | KeyCode::Char('_') => {
-                                app.speed = app.speed.saturating_add(100).min(2000);
+                                if app.speed < 100 {
+                                    app.speed = app.speed.saturating_add(10).min(2000);
+                                } else {
+                                    app.speed = app.speed.saturating_add(100).min(2000);
+                                }
                             }
                             KeyCode::Char('?') => {
                                 app.state = TournamentState::Settings;

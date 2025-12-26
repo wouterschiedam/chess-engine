@@ -2,15 +2,15 @@ use super::{TournamentApp, TournamentState};
 use ratatui::{
     Frame,
     layout::{Alignment, Constraint, Direction, Layout},
-    style::{Color, Style},
+    style::{Color, Style, Modifier},
     text::{Line, Span},
     widgets::{Block, Borders, Paragraph, Wrap},
 };
 
 pub fn draw(f: &mut Frame, app: &TournamentApp, area: ratatui::layout::Rect) {
     let stats_chunks = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(60), Constraint::Percentage(40)])
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Fill(1), Constraint::Length(8)])
         .split(area);
 
     draw_move_list(f, app, stats_chunks[0]);
@@ -28,26 +28,23 @@ fn draw_move_list(f: &mut Frame, app: &TournamentApp, area: ratatui::layout::Rec
                     .map(|(i, mv)| {
                         let is_current = i == app.replay_move_index;
                         let is_past = i < app.replay_move_index;
-                        let line = if is_current {
-                            format!("> {}. {}", (i / 2) + 1, mv)
-                        } else {
-                            format!("  {}. {}", (i / 2) + 1, mv)
-                        };
+                        let prefix = if is_current { " " } else { "  " };
+                        let line = format!("{}{:3}. {}", prefix, (i / 2) + 1, mv);
                         Line::styled(
                             line,
                             if is_current {
-                                Style::default().fg(Color::Yellow)
+                                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
                             } else if is_past {
-                                Style::default().fg(Color::Green)
+                                Style::default().fg(Color::DarkGray)
                             } else {
                                 Style::default().fg(Color::White)
                             }
                         )
                     })
                     .collect();
-                (move_lines, format!("Replay: Game {}", app.selected_game + 1))
+                (move_lines, format!(" REPLAY: GAME {} ", app.selected_game + 1))
             } else {
-                (vec![Line::from("No game selected")], "Move List".to_string())
+                (vec![Line::from(" No game selected")], " MOVE LIST ".to_string())
             }
         }
         _ => {
@@ -57,52 +54,59 @@ fn draw_move_list(f: &mut Frame, app: &TournamentApp, area: ratatui::layout::Rec
                 .enumerate()
                 .map(|(i, pair)| {
                     let move_str = if pair.len() == 2 {
-                        format!("{}. {}  {}", i + 1, pair[0], pair[1])
+                        format!(" {:3}. {:7} {:7}", i + 1, pair[0], pair[1])
                     } else {
-                        format!("{}. {}", i + 1, pair[0])
+                        format!(" {:3}. {:7}", i + 1, pair[0])
                     };
                     Line::from(move_str)
                 })
                 .collect();
-            (move_lines, "Move List".to_string())
+            (move_lines, " MOVE LIST ".to_string())
         }
     };
 
     let moves_text = if moves.is_empty() {
-        ratatui::text::Text::from("No moves yet")
+        ratatui::text::Text::from("\n  No moves yet...")
     } else {
         ratatui::text::Text::from(moves)
     };
 
-    let moves = Paragraph::new(moves_text)
-        .block(Block::default().borders(Borders::ALL).title(title))
+    let moves_paragraph = Paragraph::new(moves_text)
+        .block(Block::default()
+            .borders(Borders::ALL)
+            .title(title)
+            .border_style(Style::default().fg(Color::DarkGray)))
         .wrap(Wrap { trim: false });
 
-    f.render_widget(moves, area);
+    f.render_widget(moves_paragraph, area);
 }
 
 fn draw_tournament_stats(f: &mut Frame, app: &TournamentApp, area: ratatui::layout::Rect) {
     let stats_text = vec![
-        Line::from(format!("Games Played: {}", app.games_played)),
-        Line::from(format!("Games Total:  {}", app.total_games)),
-        Line::from(""),
-        Line::from(vec![Span::styled(
-            format!("White Wins: {} ", app.white_wins),
-            Style::default().fg(Color::Green),
-        )]),
-        Line::from(vec![Span::styled(
-            format!("Black Wins: {} ", app.black_wins),
-            Style::default().fg(Color::Blue),
-        )]),
-        Line::from(format!("Draws:       {}", app.draws)),
-        Line::from(""),
+        Line::from(vec![
+            Span::styled(" Games: ", Style::default().fg(Color::White)),
+            Span::styled(format!("{} / {}", app.games_played, app.total_games), Style::default().fg(Color::Yellow)),
+        ]),
+        Line::from(vec![
+            Span::styled(" White: ", Style::default().fg(Color::White)),
+            Span::styled(format!("{} wins", app.white_wins), Style::default().fg(Color::Green)),
+        ]),
+        Line::from(vec![
+            Span::styled(" Black: ", Style::default().fg(Color::White)),
+            Span::styled(format!("{} wins", app.black_wins), Style::default().fg(Color::Blue)),
+        ]),
+        Line::from(vec![
+            Span::styled(" Draws: ", Style::default().fg(Color::White)),
+            Span::styled(format!("{}", app.draws), Style::default().fg(Color::Gray)),
+        ]),
     ];
 
     let stats = Paragraph::new(stats_text)
         .block(
             Block::default()
                 .borders(Borders::ALL)
-                .title("Tournament Stats"),
+                .title(" TOURNAMENT STATS ")
+                .border_style(Style::default().fg(Color::DarkGray)),
         )
         .wrap(Wrap { trim: true });
 

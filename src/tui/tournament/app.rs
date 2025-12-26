@@ -181,7 +181,11 @@ impl TournamentApp {
     pub fn replay_next_move(&mut self) {
         if let Some(game) = self.game_history.get(self.selected_game) {
             if self.replay_move_index < game.moves.len() {
-                self.replay_move_index += 1;
+                let move_str = &game.moves[self.replay_move_index];
+                if let Some(mv) = self.parse_move_str(&self.replay_board, move_str) {
+                    self.replay_board.make_move(&mv);
+                    self.replay_move_index += 1;
+                }
             }
         }
     }
@@ -189,7 +193,56 @@ impl TournamentApp {
     pub fn replay_prev_move(&mut self) {
         if self.replay_move_index > 0 {
             self.replay_move_index -= 1;
+            self.replay_board = Board::build(None);
+            if let Some(game) = self.game_history.get(self.selected_game) {
+                for i in 0..self.replay_move_index {
+                    let move_str = &game.moves[i];
+                    if let Some(mv) = self.parse_move_str(&self.replay_board, move_str) {
+                        self.replay_board.make_move(&mv);
+                    }
+                }
+            }
         }
+    }
+
+    fn parse_move_str(&self, board: &Board, move_str: &str) -> Option<crate::movegen::Move> {
+        use crate::movegen::generate_legal_moves;
+        use crate::utils::display::format_move;
+        let legal_moves = generate_legal_moves(board);
+        for mv in legal_moves {
+            if format_move(&mv) == move_str {
+                return Some(mv);
+            }
+        }
+        None
+    }
+
+    pub fn load_replay_from_file(&mut self, path: &str) -> std::io::Result<()> {
+        use std::fs::File;
+        use std::io::{BufRead, BufReader};
+
+        let file = File::open(path)?;
+        let reader = BufReader::new(file);
+        let mut moves = Vec::new();
+
+        for line in reader.lines() {
+            let line = line?;
+            let line_moves: Vec<String> = line
+                .split_whitespace()
+                .map(|s| s.to_string())
+                .collect();
+            moves.extend(line_moves);
+        }
+
+        self.game_history.push(GameRecord {
+            moves: moves.clone(),
+            result: "Replay".to_string(),
+            white_engine: "File".to_string(),
+            black_engine: "File".to_string(),
+        });
+        
+        self.replay_game(self.game_history.len() - 1);
+        Ok(())
     }
 
     pub fn restart_tournament(&mut self) {

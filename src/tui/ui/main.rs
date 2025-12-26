@@ -11,23 +11,21 @@ use ratatui::{
 pub fn draw(f: &mut Frame, app: &TournamentApp) {
     let main_chunks = Layout::default()
         .direction(Direction::Horizontal)
-        .margin(1)
-        .constraints([Constraint::Percentage(60), Constraint::Percentage(40)])
+        .constraints([Constraint::Fill(1), Constraint::Length(45)])
         .split(f.area());
 
     let left_chunks = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Percentage(100)])
+        .constraints([Constraint::Fill(1)])
         .split(main_chunks[0]);
 
     let right_chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(3),
-            Constraint::Length(4),
-            Constraint::Length(12),
-            Constraint::Length(8),
-            Constraint::Min(6),
+            Constraint::Length(2), // Header (reduced size, no margin)
+            Constraint::Length(6), // Status
+            Constraint::Fill(1),   // Move list / Stats
+            Constraint::Length(10), // Controls
         ])
         .split(main_chunks[1]);
 
@@ -128,74 +126,84 @@ fn draw_header(f: &mut Frame, app: &TournamentApp, area: Rect) {
     };
 
     let state_text = match app.state {
-        TournamentState::Running => "[RUNNING]",
-        TournamentState::Paused => "[PAUSED]",
-        TournamentState::Stopped => "[STOPPED]",
-        TournamentState::Finished => "[FINISHED]",
-        TournamentState::ViewingResult => "[RESULTS]",
-        TournamentState::ReplayGame => "[REPLAY]",
-        TournamentState::Settings => "[SETTINGS]",
+        TournamentState::Running => " RUNNING ",
+        TournamentState::Paused => " PAUSED ",
+        TournamentState::Stopped => " STOPPED ",
+        TournamentState::Finished => " FINISHED ",
+        TournamentState::ViewingResult => " RESULTS ",
+        TournamentState::ReplayGame => " REPLAY ",
+        TournamentState::Settings => " SETTINGS ",
     };
 
     let game_text = match app.state {
-        TournamentState::ReplayGame => format!("Replaying Game {}", app.selected_game + 1),
-        _ => format!("Game {}/{}", app.games_played + 1, app.total_games),
+        TournamentState::ReplayGame => format!(" Game {} ", app.selected_game + 1),
+        _ => format!(" Game {} / {} ", app.games_played + 1, app.total_games),
     };
 
-    let header_text = vec![Line::from(vec![
+    let header_text = Line::from(vec![
         Span::styled(
-            "CHESS ENGINE TOURNAMENT",
+            " CHESS TOURNAMENT ",
             Style::default()
-                .fg(Color::Cyan)
+                .fg(Color::Black)
+                .bg(Color::Cyan)
                 .add_modifier(Modifier::BOLD),
         ),
-        Span::raw("  "),
+        Span::raw(" "),
         Span::styled(
             state_text,
             Style::default()
-                .fg(state_color)
+                .fg(Color::Black)
+                .bg(state_color)
                 .add_modifier(Modifier::BOLD),
         ),
-        Span::raw("  "),
-        Span::styled(game_text, Style::default().fg(Color::Yellow)),
-    ])];
+        Span::raw(" "),
+        Span::styled(
+            game_text,
+            Style::default()
+                .fg(Color::Black)
+                .bg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        ),
+    ]);
 
     let header = Paragraph::new(header_text)
-        .block(Block::default().borders(Borders::ALL))
         .alignment(Alignment::Center);
 
     f.render_widget(header, area);
 }
 
 fn draw_status(f: &mut Frame, app: &TournamentApp, area: Rect) {
+    let result_style = if app.game_result == "In Progress" {
+        Style::default().fg(Color::Yellow)
+    } else if app.game_result == "1-0" {
+        Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)
+    } else if app.game_result == "0-1" {
+        Style::default().fg(Color::Blue).add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(Color::Gray)
+    };
+
     let status_text = vec![
         Line::from(vec![
-            Span::styled("White: ", Style::default().fg(Color::White)),
-            Span::styled(&app.white_engine, Style::default().fg(Color::Green)),
-            Span::raw("  |  "),
-            Span::styled("Black: ", Style::default().fg(Color::White)),
-            Span::styled(&app.black_engine, Style::default().fg(Color::Blue)),
+            Span::styled("  White: ", Style::default().fg(Color::White)),
+            Span::styled(&app.white_engine, Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
         ]),
         Line::from(vec![
-            Span::styled("Result: ", Style::default().fg(Color::White)),
-            Span::styled(
-                &app.game_result,
-                if app.game_result == "In Progress" {
-                    Style::default().fg(Color::Yellow)
-                } else if app.game_result == "1-0" {
-                    Style::default().fg(Color::Green)
-                } else if app.game_result == "0-1" {
-                    Style::default().fg(Color::Blue)
-                } else {
-                    Style::default().fg(Color::Gray)
-                },
-            ),
+            Span::styled("  Black: ", Style::default().fg(Color::White)),
+            Span::styled(&app.black_engine, Style::default().fg(Color::Blue).add_modifier(Modifier::BOLD)),
+        ]),
+        Line::from(vec![
+            Span::styled(" 󱓟 Result: ", Style::default().fg(Color::White)),
+            Span::styled(&app.game_result, result_style),
         ]),
     ];
 
     let status = Paragraph::new(status_text)
-        .block(Block::default().borders(Borders::ALL))
-        .alignment(Alignment::Center);
+        .block(Block::default()
+            .borders(Borders::ALL)
+            .title(" Match Info ")
+            .border_style(Style::default().fg(Color::DarkGray)))
+        .alignment(Alignment::Left);
 
     f.render_widget(status, area);
 }

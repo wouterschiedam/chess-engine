@@ -6,24 +6,47 @@ use ratatui::{
     widgets::{Block, Borders, Clear, Paragraph, Wrap},
 };
 
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum GameMode {
+    PlayerVsEngine,
+    PlayerVsPlayer,
+    EngineVsEngine,
+    Replay,
+}
+
+impl GameMode {
+    pub fn name(&self) -> &str {
+        match self {
+            GameMode::PlayerVsEngine => "Player vs Engine",
+            GameMode::PlayerVsPlayer => "Player vs Player",
+            GameMode::EngineVsEngine => "Engine vs Engine",
+            GameMode::Replay => "Replay from File",
+        }
+    }
+}
+
 #[derive(Clone, Copy, PartialEq)]
 pub enum SetupField {
+    Mode,
     Engine1Path,
     Engine2Path,
     NumGames,
     SearchDepth,
     TimeControl,
     TournamentFormat,
+    FilePath,
     Start,
 }
 
 pub struct SetupMenu {
+    pub mode: GameMode,
     pub engine1_path: String,
     pub engine2_path: String,
     pub num_games: String,
     pub search_depth: String,
     pub time_control: String,
     pub tournament_format: String,
+    pub file_path: String,
     pub current_field: SetupField,
     pub editing: bool,
 }
@@ -31,25 +54,41 @@ pub struct SetupMenu {
 impl SetupMenu {
     pub fn new() -> Self {
         Self {
+            mode: GameMode::EngineVsEngine,
             engine1_path: "./target/release/chess".to_string(),
             engine2_path: "./target/release/chess".to_string(),
             num_games: "10".to_string(),
             search_depth: "6".to_string(),
             time_control: "blitz".to_string(),
             tournament_format: "gauntlet".to_string(),
-            current_field: SetupField::Engine1Path,
+            file_path: "game.pgn".to_string(),
+            current_field: SetupField::Mode,
             editing: false,
         }
     }
 
     pub fn next_field(&mut self) {
         self.current_field = match self.current_field {
-            SetupField::Engine1Path => SetupField::Engine2Path,
+            SetupField::Mode => {
+                match self.mode {
+                    GameMode::Replay => SetupField::FilePath,
+                    GameMode::PlayerVsPlayer => SetupField::Start,
+                    GameMode::PlayerVsEngine => SetupField::Engine1Path,
+                    GameMode::EngineVsEngine => SetupField::Engine1Path,
+                }
+            }
+            SetupField::Engine1Path => {
+                match self.mode {
+                    GameMode::EngineVsEngine => SetupField::Engine2Path,
+                    _ => SetupField::SearchDepth,
+                }
+            }
             SetupField::Engine2Path => SetupField::NumGames,
             SetupField::NumGames => SetupField::SearchDepth,
             SetupField::SearchDepth => SetupField::TimeControl,
             SetupField::TimeControl => SetupField::TournamentFormat,
             SetupField::TournamentFormat => SetupField::Start,
+            SetupField::FilePath => SetupField::Start,
             SetupField::Start => SetupField::Start,
         };
         self.editing = false;
@@ -57,19 +96,49 @@ impl SetupMenu {
 
     pub fn prev_field(&mut self) {
         self.current_field = match self.current_field {
-            SetupField::Engine1Path => SetupField::Engine1Path,
+            SetupField::Mode => SetupField::Mode,
+            SetupField::Engine1Path => SetupField::Mode,
             SetupField::Engine2Path => SetupField::Engine1Path,
             SetupField::NumGames => SetupField::Engine2Path,
-            SetupField::SearchDepth => SetupField::NumGames,
+            SetupField::SearchDepth => {
+                match self.mode {
+                    GameMode::PlayerVsEngine => SetupField::Engine1Path,
+                    GameMode::EngineVsEngine => SetupField::NumGames,
+                    _ => SetupField::Mode,
+                }
+            }
             SetupField::TimeControl => SetupField::SearchDepth,
             SetupField::TournamentFormat => SetupField::TimeControl,
-            SetupField::Start => SetupField::TournamentFormat,
+            SetupField::FilePath => SetupField::Mode,
+            SetupField::Start => {
+                match self.mode {
+                    GameMode::Replay => SetupField::FilePath,
+                    GameMode::PlayerVsPlayer => SetupField::Mode,
+                    _ => SetupField::TournamentFormat,
+                }
+            }
         };
         self.editing = false;
     }
 
     pub fn handle_char(&mut self, c: char) {
         if !self.editing {
+            match self.current_field {
+                SetupField::Mode => {
+                    if c == ' ' || c == '\n' || c == '\r' {
+                        // handled by toggle_edit/enter
+                    } else {
+                        // cycle mode
+                        self.mode = match self.mode {
+                            GameMode::PlayerVsEngine => GameMode::PlayerVsPlayer,
+                            GameMode::PlayerVsPlayer => GameMode::EngineVsEngine,
+                            GameMode::EngineVsEngine => GameMode::Replay,
+                            GameMode::Replay => GameMode::PlayerVsEngine,
+                        };
+                    }
+                }
+                _ => {}
+            }
             return;
         }
 
@@ -88,7 +157,8 @@ impl SetupMenu {
             }
             SetupField::TimeControl => self.time_control.push(c),
             SetupField::TournamentFormat => self.tournament_format.push(c),
-            SetupField::Start => {}
+            SetupField::FilePath => self.file_path.push(c),
+            _ => {}
         }
     }
 
@@ -104,24 +174,38 @@ impl SetupMenu {
             SetupField::SearchDepth => { self.search_depth.pop(); }
             SetupField::TimeControl => { self.time_control.pop(); }
             SetupField::TournamentFormat => { self.tournament_format.pop(); }
-            SetupField::Start => {}
+            SetupField::FilePath => { self.file_path.pop(); }
+            _ => {}
         }
     }
 
     pub fn toggle_edit(&mut self) {
-        if self.current_field != SetupField::Start {
-            self.editing = !self.editing;
+        match self.current_field {
+            SetupField::Start => {}
+            SetupField::Mode => {
+                self.mode = match self.mode {
+                    GameMode::PlayerVsEngine => GameMode::PlayerVsPlayer,
+                    GameMode::PlayerVsPlayer => GameMode::EngineVsEngine,
+                    GameMode::EngineVsEngine => GameMode::Replay,
+                    GameMode::Replay => GameMode::PlayerVsEngine,
+                };
+            }
+            _ => {
+                self.editing = !self.editing;
+            }
         }
     }
 
     pub fn is_ready_to_start(&self) -> bool {
-        !self.engine1_path.is_empty()
-            && !self.engine2_path.is_empty()
-            && self.num_games.parse::<usize>().is_ok()
-            && self.search_depth.parse::<u8>().is_ok()
+        match self.mode {
+            GameMode::PlayerVsPlayer => true,
+            GameMode::PlayerVsEngine => !self.engine1_path.is_empty() && self.search_depth.parse::<u8>().is_ok(),
+            GameMode::EngineVsEngine => !self.engine1_path.is_empty() && !self.engine2_path.is_empty() && self.num_games.parse::<usize>().is_ok() && self.search_depth.parse::<u8>().is_ok(),
+            GameMode::Replay => !self.file_path.is_empty(),
+        }
     }
 
-    pub fn get_config(&self) -> (String, String, usize, u8, String, String) {
+    pub fn get_config(&self) -> (String, String, usize, u8, String, String, String, GameMode) {
         (
             self.engine1_path.clone(),
             self.engine2_path.clone(),
@@ -129,6 +213,8 @@ impl SetupMenu {
             self.search_depth.parse().unwrap_or(6),
             self.time_control.clone(),
             self.tournament_format.clone(),
+            self.file_path.clone(),
+            self.mode,
         )
     }
 }
@@ -137,11 +223,11 @@ pub fn draw(f: &mut Frame, setup: &SetupMenu) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(3),
-            Constraint::Min(0),
-            Constraint::Length(3),
+            Constraint::Length(3), // Title
+            Constraint::Fill(1),   // Form
+            Constraint::Length(3), // Footer
         ])
-        .margin(2)
+        .margin(1)
         .split(f.area());
 
     draw_title(f, chunks[0]);
@@ -150,61 +236,56 @@ pub fn draw(f: &mut Frame, setup: &SetupMenu) {
 }
 
 fn draw_title(f: &mut Frame, area: ratatui::layout::Rect) {
-    let title = Paragraph::new("CHESS TOURNAMENT SETUP")
-        .style(
-            Style::default()
-                .fg(Color::Cyan)
-                .add_modifier(Modifier::BOLD),
-        )
-        .block(Block::default().borders(Borders::ALL))
-        .alignment(Alignment::Center);
+    let title = Paragraph::new(Line::from(vec![
+        Span::styled(" 󱓟 ", Style::default().fg(Color::Yellow)),
+        Span::styled("CHESS ENGINE SETUP", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+        Span::styled(" 󱓟 ", Style::default().fg(Color::Yellow)),
+    ]))
+    .block(Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::DarkGray)))
+    .alignment(Alignment::Center);
 
     f.render_widget(title, area);
 }
 
 fn draw_form(f: &mut Frame, setup: &SetupMenu, area: ratatui::layout::Rect) {
-    let fields = vec![
+    let mut fields = vec![
         draw_field(
-            "Engine 1 Path (White in odd games):",
-            &setup.engine1_path,
-            SetupField::Engine1Path,
+            "Game Mode:",
+            setup.mode.name(),
+            SetupField::Mode,
             setup,
         ),
-        draw_field(
-            "Engine 2 Path (Black in odd games):",
-            &setup.engine2_path,
-            SetupField::Engine2Path,
-            setup,
-        ),
-        draw_field(
-            "Number of Games:",
-            &setup.num_games,
-            SetupField::NumGames,
-            setup,
-        ),
-        draw_field(
-            "Search Depth:",
-            &setup.search_depth,
-            SetupField::SearchDepth,
-            setup,
-        ),
-        draw_field(
-            "Time Control (bullet/blitz/rapid/custom):",
-            &setup.time_control,
-            SetupField::TimeControl,
-            setup,
-        ),
-        draw_field(
-            "Format (gauntlet/round-robin):",
-            &setup.tournament_format,
-            SetupField::TournamentFormat,
-            setup,
-        ),
-        draw_start_button(setup),
     ];
 
+    match setup.mode {
+        GameMode::PlayerVsPlayer => {}
+        GameMode::PlayerVsEngine => {
+            fields.push(draw_field("Engine Path:", &setup.engine1_path, SetupField::Engine1Path, setup));
+            fields.push(draw_field("Search Depth:", &setup.search_depth, SetupField::SearchDepth, setup));
+        }
+        GameMode::EngineVsEngine => {
+            fields.push(draw_field("Engine 1 (White):", &setup.engine1_path, SetupField::Engine1Path, setup));
+            fields.push(draw_field("Engine 2 (Black):", &setup.engine2_path, SetupField::Engine2Path, setup));
+            fields.push(draw_field("Number of Games:", &setup.num_games, SetupField::NumGames, setup));
+            fields.push(draw_field("Search Depth:", &setup.search_depth, SetupField::SearchDepth, setup));
+            fields.push(draw_field("Time Control:", &setup.time_control, SetupField::TimeControl, setup));
+            fields.push(draw_field("Format:", &setup.tournament_format, SetupField::TournamentFormat, setup));
+        }
+        GameMode::Replay => {
+            fields.push(draw_field("File Path:", &setup.file_path, SetupField::FilePath, setup));
+        }
+    }
+
+    fields.push(Line::from(""));
+    fields.push(draw_start_button(setup));
+
     let form = Paragraph::new(fields)
-        .block(Block::default().borders(Borders::ALL))
+        .block(Block::default()
+            .borders(Borders::ALL)
+            .title(" Configuration ")
+            .border_style(Style::default().fg(Color::DarkGray)))
         .wrap(Wrap { trim: false });
 
     f.render_widget(form, area);
@@ -219,23 +300,28 @@ fn draw_field(
     let is_selected = setup.current_field == field_type;
     let is_editing = setup.editing && is_selected;
 
-    let marker = if is_selected { "> " } else { "  " };
+    let marker = if is_selected { "  " } else { "   " };
     let cursor = if is_editing { "█" } else { "" };
-    let value_display = if is_editing {
-        format!("{}{}", value, cursor)
+    
+    let style = if is_selected {
+        Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
     } else {
-        value.to_string()
+        Style::default().fg(Color::White)
+    };
+
+    let value_style = if is_editing {
+        Style::default().fg(Color::Black).bg(Color::Green)
+    } else if is_selected {
+        Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(Color::DarkGray)
     };
 
     Line::from(vec![
         Span::styled(marker, Style::default().fg(Color::Yellow)),
-        Span::styled(label.to_string(), Style::default().fg(Color::White)),
-        Span::raw("  "),
-        Span::styled(
-            value_display,
-            Style::default()
-                .fg(if is_editing { Color::Green } else { Color::Cyan }),
-        ),
+        Span::styled(format!("{:20}", label), style),
+        Span::styled(format!(" {} ", value), value_style),
+        Span::styled(cursor, Style::default().fg(Color::Green)),
     ])
 }
 
@@ -243,38 +329,39 @@ fn draw_start_button(setup: &SetupMenu) -> Line<'static> {
     let is_selected = setup.current_field == SetupField::Start;
     let can_start = setup.is_ready_to_start();
 
-    let marker = if is_selected { "> " } else { "  " };
-    let button_text = if can_start {
-        "[START TOURNAMENT]"
+    let marker = if is_selected { "  " } else { "   " };
+    let (button_text, style) = if can_start {
+        if is_selected {
+            (" START SESSION ", Style::default().fg(Color::Black).bg(Color::Green).add_modifier(Modifier::BOLD))
+        } else {
+            (" START SESSION ", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD))
+        }
     } else {
-        "[Fill in all fields]"
+        (" [Missing Info] ", Style::default().fg(Color::DarkGray))
     };
 
     Line::from(vec![
         Span::styled(marker, Style::default().fg(Color::Yellow)),
-        Span::styled(
-            button_text,
-            Style::default()
-                .fg(if can_start { Color::Green } else { Color::Gray })
-                .add_modifier(Modifier::BOLD),
-        ),
+        Span::styled(button_text, style),
     ])
 }
 
 fn draw_footer(f: &mut Frame, area: ratatui::layout::Rect) {
     let footer_text = vec![
         Line::from(vec![
-            Span::styled("↑/↓", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+            Span::styled(" ↑/↓ ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
             Span::raw(" Navigate  "),
-            Span::styled("Enter", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-            Span::raw(" Edit/Start  "),
-            Span::styled("Esc", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-            Span::raw(" Exit  "),
+            Span::styled(" Enter ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+            Span::raw(" Toggle Edit / Cycle Mode  "),
+            Span::styled(" Esc ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+            Span::raw(" Exit "),
         ]),
     ];
 
     let footer = Paragraph::new(footer_text)
-        .block(Block::default().borders(Borders::ALL))
+        .block(Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(Color::DarkGray)))
         .alignment(Alignment::Center);
 
     f.render_widget(footer, area);

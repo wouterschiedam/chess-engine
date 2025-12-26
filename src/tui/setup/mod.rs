@@ -1,3 +1,3 @@
 pub mod menu;
 
-pub use menu::{SetupMenu, SetupField, draw as draw_setup};
+pub use menu::{SetupMenu, SetupField, GameMode, draw as draw_setup};
