@@ -9,6 +9,7 @@ pub enum BoardScale {
     Large,
 }
 
+#[derive(Clone, Copy, PartialEq, Debug)]
 pub enum TournamentState {
     Running,
     Paused,
@@ -50,6 +51,11 @@ pub struct TournamentApp {
     pub replay_board: Board,
     pub board_scale: BoardScale,
     pub selected_setting: usize,
+    pub game_mode: crate::tui::setup::GameMode,
+    pub cursor_pos: usize,
+    pub selected_square: Option<usize>,
+    pub file_path: String,
+    pub legal_moves: Vec<crate::movegen::Move>,
 }
 
 impl TournamentApp {
@@ -57,11 +63,14 @@ impl TournamentApp {
         let engine1_path = engine1.unwrap_or_else(|| "./target/release/chess".to_string());
         let engine2_path = engine2.unwrap_or_else(|| engine1_path.clone());
 
+        let board = Board::build(None);
+        let legal_moves = crate::movegen::generate_legal_moves(&board);
+
         Self {
             games_played: 0,
             total_games,
             current_game_moves: Vec::new(),
-            board: Board::build(None),
+            board,
             game_result: "Ready".to_string(),
             white_engine: engine1_path,
             black_engine: engine2_path,
@@ -80,7 +89,16 @@ impl TournamentApp {
             replay_board: Board::build(None),
             board_scale: BoardScale::Large,
             selected_setting: 0,
+            game_mode: crate::tui::setup::GameMode::EngineVsEngine,
+            cursor_pos: 0,
+            selected_square: None,
+            file_path: String::new(),
+            legal_moves,
         }
+    }
+
+    pub fn update_legal_moves(&mut self) {
+        self.legal_moves = crate::movegen::generate_legal_moves(&self.board);
     }
 
     pub fn next_board_scale(&mut self) {
@@ -92,6 +110,51 @@ impl TournamentApp {
         };
     }
 
+    pub fn move_cursor(&mut self, dx: i8, dy: i8) {
+        let mut file = (self.cursor_pos % 8) as i8;
+        let mut rank = (self.cursor_pos / 8) as i8;
+
+        file = (file + dx).clamp(0, 7);
+        rank = (rank + dy).clamp(0, 7);
+
+        self.cursor_pos = (rank * 8 + file) as usize;
+    }
+
+    pub fn handle_select(&mut self) {
+        if let Some(selected) = self.selected_square {
+            if selected == self.cursor_pos {
+                self.selected_square = None;
+                return;
+            }
+
+            // Try to make a move
+            let move_str = format!("{}{}", 
+                crate::board::types::SQUARE_NAME[selected],
+                crate::board::types::SQUARE_NAME[self.cursor_pos]);
+            
+            if let Some(mv) = self.parse_move_str(&self.board, &move_str) {
+                self.board.make_move(&mv);
+                self.current_game_moves.push(move_str);
+                self.selected_square = None;
+                
+                // If PvE, trigger engine move (not implemented here, but handled in loop)
+            } else {
+                // If clicking another piece of same side, change selection
+                let side = self.board.gamestate.active_side;
+                if (self.board.bb_side[side] >> self.cursor_pos) & 1 == 1 {
+                    self.selected_square = Some(self.cursor_pos);
+                } else {
+                    self.selected_square = None;
+                }
+            }
+        } else {
+            let side = self.board.gamestate.active_side;
+            if (self.board.bb_side[side] >> self.cursor_pos) & 1 == 1 {
+                self.selected_square = Some(self.cursor_pos);
+            }
+        }
+    }
+
     pub fn add_move(&mut self, mv: &Move) {
         self.current_game_moves.push(format_move(mv));
     }
@@ -100,6 +163,7 @@ impl TournamentApp {
         self.current_game_moves.clear();
         self.board = Board::build(None);
         self.game_result = "In Progress".to_string();
+        self.update_legal_moves();
     }
 
     pub fn end_game(&mut self, result: &str) {

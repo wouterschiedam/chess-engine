@@ -183,18 +183,29 @@ fn draw_status(f: &mut Frame, app: &TournamentApp, area: Rect) {
         Style::default().fg(Color::Gray)
     };
 
+    let active_side = app.board.gamestate.active_side;
+    let turn_text = if active_side == 0 { "White to move" } else { "Black to move" };
+    let turn_color = if active_side == 0 { Color::Green } else { Color::Blue };
+
     let status_text = vec![
         Line::from(vec![
             Span::styled("  White: ", Style::default().fg(Color::White)),
             Span::styled(&app.white_engine, Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+            if active_side == 0 { Span::styled(" ←", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)) } else { Span::raw("") },
         ]),
         Line::from(vec![
             Span::styled("  Black: ", Style::default().fg(Color::White)),
             Span::styled(&app.black_engine, Style::default().fg(Color::Blue).add_modifier(Modifier::BOLD)),
+            if active_side == 1 { Span::styled(" ←", Style::default().fg(Color::Blue).add_modifier(Modifier::BOLD)) } else { Span::raw("") },
         ]),
         Line::from(vec![
             Span::styled(" 󱓟 Result: ", Style::default().fg(Color::White)),
             Span::styled(&app.game_result, result_style),
+        ]),
+        Line::from(""),
+        Line::from(vec![
+            Span::styled(" Turn:   ", Style::default().fg(Color::White)),
+            Span::styled(turn_text, Style::default().fg(turn_color).add_modifier(Modifier::BOLD)),
         ]),
     ];
 

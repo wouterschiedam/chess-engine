@@ -6,11 +6,6 @@ use ratatui::{
 };
 
 pub fn draw(f: &mut Frame, app: &crate::tui::TournamentApp, area: Rect) {
-    let board = if matches!(app.state, crate::tui::tournament::app::TournamentState::ReplayGame) {
-        &app.replay_board
-    } else {
-        &app.board
-    };
-    let board_widget = BoardWidget::new(board, app.board_scale);
+    let board_widget = BoardWidget::new(app);
     f.render_widget(board_widget, area);
 }

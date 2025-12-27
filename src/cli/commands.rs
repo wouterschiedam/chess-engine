@@ -4,7 +4,9 @@ use crate::tui::tournament::draw_results;
 use crate::tui::{TournamentApp, TournamentState, ui::draw};
 use crate::utils::display::print_position;
 use crate::utils::perft::{divide, divide_with_known, drill_down, perft, perft_verbose};
-use std::time::Duration;
+use std::time::{Duration, Instant};
+use std::sync::{Arc, Mutex};
+use std::thread;
 
 /// Interactive game loop
 pub fn play_game(starting_fen: Option<&str>, _engine_plays_black: bool, _depth: u8) {
@@ -91,36 +93,79 @@ pub fn run_tournament() {
     app.search_depth = config.3;
     app.time_control = config.4;
     app.tournament_format = config.5;
-    // config.6 is file_path, config.7 is mode
+    app.file_path = config.6.clone();
+    app.game_mode = config.7;
     let mode = config.7;
-    
-    match mode {
-        crate::tui::setup::GameMode::EngineVsEngine => {
-            app.start();
-            let result = run_tournament_logic(&mut terminal, &mut app);
-            if let Err(err) = result {
-                eprintln!("Error: {}", err);
+
+    let app = Arc::new(Mutex::new(app));
+    let app_clone = Arc::clone(&app);
+
+    // Engine/Simulation thread
+    thread::spawn(move || {
+        loop {
+            let (is_running, speed, should_quit, board, game_mode) = {
+                let app = app_clone.lock().unwrap();
+                (app.is_running(), app.speed, app.should_quit, app.board.clone(), app.game_mode)
+            };
+
+            if should_quit { break; }
+
+            if is_running {
+                let current_side = board.gamestate.active_side;
+                let is_engine_turn = match game_mode {
+                    crate::tui::setup::GameMode::EngineVsEngine => true,
+                    crate::tui::setup::GameMode::PlayerVsEngine => current_side == 1,
+                    _ => false,
+                };
+
+                if is_engine_turn {
+                    // Expensive move calculation outside the lock
+                    let status = board.get_status();
+                    if status != crate::defs::GameStatus::Ongoing {
+                        let mut app = app_clone.lock().unwrap();
+                        // Re-check status inside lock to avoid race conditions
+                        let status = app.board.get_status();
+                        if status != crate::defs::GameStatus::Ongoing {
+                            let result = match status {
+                                crate::defs::GameStatus::Checkmate => {
+                                    if app.board.gamestate.active_side == 0 { "0-1" } else { "1-0" }
+                                }
+                                _ => "1/2-1/2",
+                            };
+                            app.end_game(result);
+                            if app.games_played < app.total_games {
+                                app.start_new_game();
+                            } else {
+                                app.finish_tournament();
+                                app.view_results();
+                            }
+                        }
+                    } else {
+                        let legal_moves = crate::movegen::generate_legal_moves(&board);
+                        if !legal_moves.is_empty() {
+                            let mv = &legal_moves[fastrand::usize(..legal_moves.len())];
+                            let move_str = crate::utils::display::format_move(mv);
+                            
+                            let mut app = app_clone.lock().unwrap();
+                            // Apply move if the board hasn't changed (e.g. by reset)
+                            if app.board.gamestate.fullmovenumber == board.gamestate.fullmovenumber && 
+                               app.board.gamestate.active_side == board.gamestate.active_side {
+                                app.board.make_move(mv);
+                                app.current_game_moves.push(move_str);
+                                app.update_legal_moves();
+                            }
+                        }
+                    }
+                }
             }
+            
+            // Sleep to let UI thread breathe, minimum 1ms to prevent lock starvation
+            let sleep_time = if speed == 0 { 1 } else { speed as u64 };
+            thread::sleep(Duration::from_millis(sleep_time));
         }
-        crate::tui::setup::GameMode::Replay => {
-            if let Err(e) = app.load_replay_from_file(&config.6) {
-                // If file not found, we could show an error, but for now let's just not start replay
-                // and maybe return to setup or just log it if we could.
-            }
-            let result = run_tournament_logic(&mut terminal, &mut app);
-            if let Err(err) = result {
-                eprintln!("Error: {}", err);
-            }
-        }
-        _ => {
-            // Placeholder for PvP and PvE
-            app.start();
-            let result = run_tournament_logic(&mut terminal, &mut app);
-            if let Err(err) = result {
-                eprintln!("Error: {}", err);
-            }
-        }
-    }
+    });
+
+    let result = run_tournament_logic(&mut terminal, &app);
 }
 
 fn run_setup_menu<B: ratatui::backend::Backend>(
@@ -170,19 +215,42 @@ fn run_setup_menu<B: ratatui::backend::Backend>(
 
 fn run_tournament_logic<B: ratatui::backend::Backend>(
     terminal: &mut ratatui::Terminal<B>,
-    app: &mut TournamentApp,
+    app: &Arc<Mutex<TournamentApp>>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     use crossterm::event::{self, KeyCode};
-    use std::thread;
     use std::time::Duration;
 
-    loop {
-        match app.state {
-            TournamentState::Finished | TournamentState::ViewingResult => {
-                terminal.draw(|f| draw_results(f, app, f.area()))?;
+    let mut last_draw = Instant::now();
 
-                if event::poll(Duration::from_millis(100))? {
-                    if let event::Event::Key(key) = event::read()? {
+    loop {
+        let (state, should_quit) = {
+            let app = app.lock().unwrap();
+            (app.state, app.should_quit)
+        };
+
+        if should_quit {
+            break;
+        }
+
+        // Draw at most 60 times per second
+        if last_draw.elapsed() >= Duration::from_millis(16) {
+            let app = app.lock().unwrap();
+            match state {
+                TournamentState::Finished | TournamentState::ViewingResult => {
+                    terminal.draw(|f| draw_results(f, &app, f.area()))?;
+                }
+                _ => {
+                    terminal.draw(|f| draw(f, &app))?;
+                }
+            }
+            last_draw = Instant::now();
+        }
+
+        if event::poll(Duration::from_millis(10))? {
+            if let event::Event::Key(key) = event::read()? {
+                let mut app = app.lock().unwrap();
+                match app.state {
+                    TournamentState::Finished | TournamentState::ViewingResult => {
                         match key.code {
                             KeyCode::Char('q') => {
                                 app.quit();
@@ -203,7 +271,8 @@ fn run_tournament_logic<B: ratatui::backend::Backend>(
                             }
                             KeyCode::Enter => {
                                 if !app.game_history.is_empty() {
-                                    app.replay_game(app.selected_game);
+                                    let game_index = app.selected_game;
+                                    app.replay_game(game_index);
                                 }
                             }
                             KeyCode::Esc => {
@@ -212,13 +281,7 @@ fn run_tournament_logic<B: ratatui::backend::Backend>(
                             _ => {}
                         }
                     }
-                }
-            }
-            TournamentState::Settings => {
-                terminal.draw(|f| draw(f, app))?;
-
-                if event::poll(Duration::from_millis(100))? {
-                    if let event::Event::Key(key) = event::read()? {
+                    TournamentState::Settings => {
                         match key.code {
                             KeyCode::Esc | KeyCode::Char('?') => {
                                 app.state = TournamentState::Paused;
@@ -245,13 +308,7 @@ fn run_tournament_logic<B: ratatui::backend::Backend>(
                             _ => {}
                         }
                     }
-                }
-            }
-            TournamentState::ReplayGame => {
-                terminal.draw(|f| draw(f, app))?;
-
-                if event::poll(Duration::from_millis(100))? {
-                    if let event::Event::Key(key) = event::read()? {
+                    TournamentState::ReplayGame => {
                         match key.code {
                             KeyCode::Char('q') => {
                                 app.quit();
@@ -272,20 +329,33 @@ fn run_tournament_logic<B: ratatui::backend::Backend>(
                             _ => {}
                         }
                     }
-                }
-            }
-            _ => {
-                terminal.draw(|f| draw(f, app))?;
-
-                if event::poll(Duration::from_millis(100))? {
-                    if let event::Event::Key(key) = event::read()? {
+                    _ => {
                         match key.code {
                             KeyCode::Char('q') => {
                                 app.quit();
                                 break;
                             }
                             KeyCode::Char(' ') => {
-                                app.toggle_pause();
+                                if app.game_mode == crate::tui::setup::GameMode::EngineVsEngine {
+                                    app.toggle_pause();
+                                } else {
+                                    app.handle_select();
+                                }
+                            }
+                            KeyCode::Enter => {
+                                app.handle_select();
+                            }
+                            KeyCode::Up | KeyCode::Char('k') => {
+                                app.move_cursor(0, 1);
+                            }
+                            KeyCode::Down | KeyCode::Char('j') => {
+                                app.move_cursor(0, -1);
+                            }
+                            KeyCode::Left | KeyCode::Char('h') => {
+                                app.move_cursor(-1, 0);
+                            }
+                            KeyCode::Right | KeyCode::Char('l') => {
+                                app.move_cursor(1, 0);
                             }
                             KeyCode::Char('r') => {
                                 app.reset();
@@ -317,60 +387,11 @@ fn run_tournament_logic<B: ratatui::backend::Backend>(
                         }
                     }
                 }
-
-                if app.is_running() && app.games_played < app.total_games {
-                    simulate_move(app);
-                    thread::sleep(Duration::from_millis(app.speed as u64));
-                } else if app.games_played >= app.total_games {
-                    app.finish_tournament();
-                    app.view_results();
-                }
             }
-        }
-
-        if app.should_quit {
-            break;
         }
     }
 
     Ok(())
-}
-
-fn simulate_move(app: &mut TournamentApp) {
-    use crate::movegen::generate_legal_moves;
-    use fastrand;
-
-    let legal_moves = generate_legal_moves(&app.board);
-
-    if legal_moves.is_empty() {
-        if app.board.is_in_check(app.board.gamestate.active_side) {
-            let result = if app.board.gamestate.active_side == 0 {
-                "0-1"
-            } else {
-                "1-0"
-            };
-            app.end_game(result);
-        } else {
-            app.end_game("1/2-1/2");
-        }
-
-        if app.games_played < app.total_games {
-            app.start_new_game();
-        }
-        return;
-    }
-
-    let mv = &legal_moves[fastrand::usize(..legal_moves.len())];
-    app.board.make_move(mv);
-    app.add_move(mv);
-
-    if fastrand::usize(..200) < 3 {
-        let result = if fastrand::bool() { "1-0" } else { "0-1" };
-        app.end_game(result);
-        if app.games_played < app.total_games {
-            app.start_new_game();
-        }
-    }
 }
 
 /// Run perft on a position with various debugging options

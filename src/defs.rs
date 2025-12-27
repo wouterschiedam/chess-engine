@@ -42,3 +42,32 @@ pub const MAX_GAME_MOVES: usize = 2048;
 pub const MAXLEGAL_MOVES: u8 = 255;
 pub const MAX_PLY: i8 = 125;
 pub const MAX_MOVE_RULE: u8 = 100; // 50/75 move rule
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum GameStatus {
+    Ongoing,
+    Checkmate,
+    Stalemate,
+    DrawByFiftyMove,
+    DrawByRepetition,
+    InsufficientMaterial,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum GameResult {
+    WhiteWins,
+    BlackWins,
+    Draw,
+    InProgress,
+}
+
+impl GameResult {
+    pub fn to_str(&self) -> &str {
+        match self {
+            GameResult::WhiteWins => "1-0",
+            GameResult::BlackWins => "0-1",
+            GameResult::Draw => "1/2-1/2",
+            GameResult::InProgress => "*",
+        }
+    }
+}

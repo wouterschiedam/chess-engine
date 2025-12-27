@@ -156,6 +156,26 @@ impl Board {
         self.piece_list[square]
     }
 
+    pub fn get_status(&self) -> crate::defs::GameStatus {
+        use crate::movegen::generate_legal_moves;
+        
+        if self.gamestate.halfclockmove >= 100 {
+            return crate::defs::GameStatus::DrawByFiftyMove;
+        }
+
+        let legal_moves = generate_legal_moves(self);
+        if legal_moves.is_empty() {
+            if self.is_in_check(self.gamestate.active_side) {
+                return crate::defs::GameStatus::Checkmate;
+            } else {
+                return crate::defs::GameStatus::Stalemate;
+            }
+        }
+
+        // TODO: Draw by repetition and insufficient material
+        crate::defs::GameStatus::Ongoing
+    }
+
     // ============================================================================
     // CHECK DETECTION
     // ============================================================================

@@ -12,15 +12,41 @@ use ratatui::{
 
 pub const LIGHT_SQUARE: Color = Color::Rgb(240, 217, 181);
 pub const DARK_SQUARE: Color = Color::Rgb(181, 136, 99);
+pub const CURSOR_COLOR: Color = Color::Rgb(100, 150, 255);
+pub const SELECTED_COLOR: Color = Color::Rgb(255, 255, 100);
+pub const MOVE_TARGET_COLOR: Color = Color::Rgb(100, 255, 100);
 
 pub struct BoardWidget<'a> {
     board: &'a Board,
     scale: BoardScale,
+    cursor_pos: usize,
+    selected_square: Option<usize>,
+    show_cursor: bool,
 }
 
 impl<'a> BoardWidget<'a> {
-    pub fn new(board: &'a Board, scale: BoardScale) -> Self {
-        Self { board, scale }
+    pub fn new(app: &'a crate::tui::tournament::app::TournamentApp) -> Self {
+        let board = if matches!(app.state, crate::tui::tournament::app::TournamentState::ReplayGame) {
+            &app.replay_board
+        } else {
+            &app.board
+        };
+
+        // Only show cursor in interactive modes or during replay
+        let show_cursor = match app.game_mode {
+            crate::tui::setup::GameMode::EngineVsEngine => {
+                matches!(app.state, crate::tui::tournament::app::TournamentState::Paused | crate::tui::tournament::app::TournamentState::Stopped)
+            },
+            _ => true,
+        };
+
+        Self {
+            board,
+            scale: app.board_scale,
+            cursor_pos: app.cursor_pos,
+            selected_square: app.selected_square,
+            show_cursor,
+        }
     }
 }
 
@@ -56,7 +82,14 @@ impl<'a> Widget for BoardWidget<'a> {
             for file in 0..8 {
                 let square_index = rank * 8 + file;
                 let is_light = (rank + file) % 2 != 0;
-                let bg_color = if is_light { LIGHT_SQUARE } else { DARK_SQUARE };
+                
+                let mut bg_color = if is_light { LIGHT_SQUARE } else { DARK_SQUARE };
+                
+                if self.show_cursor && square_index == self.cursor_pos {
+                    bg_color = CURSOR_COLOR;
+                } else if Some(square_index) == self.selected_square {
+                    bg_color = SELECTED_COLOR;
+                }
 
                 let x = start_x + (file as u16 * cell_width);
                 let y = start_y + ((7 - rank) as u16 * cell_height);
