@@ -167,6 +167,15 @@ pub fn run_tournament() {
     });
 
     let _ = run_tournament_logic(&mut terminal, &app);
+
+    // Final cleanup
+    let _ = disable_raw_mode();
+    let _ = execute!(
+        terminal.backend_mut(),
+        LeaveAlternateScreen,
+        DisableMouseCapture
+    );
+    let _ = terminal.show_cursor();
 }
 
 fn end_game_logic(app: &mut TournamentApp) {
@@ -253,15 +262,39 @@ fn run_tournament_logic<B: ratatui::backend::Backend>(
             if let event::Event::Key(key) = event::read()? {
                 let mut app = app.lock().unwrap();
                 match app.state {
-                    TournamentState::Finished | TournamentState::ViewingResult => match key.code {
-                        KeyCode::Char('q') => { app.quit(); break; }
-                        KeyCode::Char('r') => app.restart_tournament(),
-                        KeyCode::Up | KeyCode::Char('k') => if app.selected_game > 0 { app.selected_game -= 1; },
-                        KeyCode::Down | KeyCode::Char('j') => if app.selected_game < app.game_history.len().saturating_sub(1) { app.selected_game += 1; },
-                        KeyCode::Enter => if !app.game_history.is_empty() { let game_index = app.selected_game; app.replay_game(game_index); },
-                        KeyCode::Esc => return Ok(()),
-                        _ => {}
-                    },
+                        TournamentState::Finished | TournamentState::ViewingResult => match key.code {
+                            KeyCode::Char('q') => { app.quit(); break; }
+                            KeyCode::Char('r') => app.restart_tournament(),
+                            KeyCode::Up | KeyCode::Char('k') => {
+                                if app.selected_game > 0 { 
+                                    app.selected_game -= 1;
+                                    if app.selected_game < app.history_scroll {
+                                        app.history_scroll = app.selected_game;
+                                    }
+                                }
+                            }
+                            KeyCode::Down | KeyCode::Char('j') => {
+                                if app.selected_game < app.game_history.len().saturating_sub(1) { 
+                                    app.selected_game += 1;
+                                    // Simple scroll logic: if selected is more than 15 items below scroll, move scroll
+                                    if app.selected_game >= app.history_scroll + 15 {
+                                        app.history_scroll = app.selected_game - 14;
+                                    }
+                                }
+                            }
+                            KeyCode::Enter => if !app.game_history.is_empty() { 
+                                let game_index = app.selected_game; 
+                                app.replay_game(game_index); 
+                            },
+                            KeyCode::PageUp => {
+                                app.history_scroll = app.history_scroll.saturating_sub(10);
+                            }
+                            KeyCode::PageDown => {
+                                app.history_scroll = app.history_scroll.saturating_add(10);
+                            }
+                            KeyCode::Esc => return Ok(()),
+                            _ => {}
+                        },
                     TournamentState::Settings => match key.code {
                         KeyCode::Esc | KeyCode::Char('?') => app.state = TournamentState::Paused,
                         KeyCode::Tab => app.next_board_scale(),
@@ -272,35 +305,53 @@ fn run_tournament_logic<B: ratatui::backend::Backend>(
                         KeyCode::Char('q') => { app.quit(); break; }
                         _ => {}
                     },
-                    TournamentState::ReplayGame => match key.code {
-                        KeyCode::Char('q') => { app.quit(); break; }
-                        KeyCode::Esc => app.view_results(),
-                        KeyCode::Right | KeyCode::Char('l') => app.replay_next_move(),
-                        KeyCode::Left | KeyCode::Char('h') => app.replay_prev_move(),
-                        KeyCode::Char(' ') => app.view_results(),
-                        _ => {}
-                    },
-                    _ => match key.code {
-                        KeyCode::Char('q') => { app.quit(); break; }
-                        KeyCode::Char(' ') => {
-                            if app.game_mode == GameMode::EngineVsEngine {
-                                app.toggle_pause();
-                            } else {
-                                app.handle_select();
+                        TournamentState::ReplayGame => match key.code {
+                            KeyCode::Char('q') => { app.quit(); break; }
+                            KeyCode::Esc => app.view_results(),
+                            KeyCode::Right | KeyCode::Char('l') => {
+                                app.replay_next_move();
+                                if app.replay_move_index >= app.moves_scroll + 20 {
+                                    app.moves_scroll = app.replay_move_index - 19;
+                                }
                             }
-                        }
-                        KeyCode::Enter => app.handle_select(),
-                        KeyCode::Up | KeyCode::Char('k') => app.move_cursor(0, 1),
-                        KeyCode::Down | KeyCode::Char('j') => app.move_cursor(0, -1),
-                        KeyCode::Left | KeyCode::Char('h') => app.move_cursor(-1, 0),
-                        KeyCode::Right | KeyCode::Char('l') => app.move_cursor(1, 0),
-                        KeyCode::Char('r') => app.reset(),
-                        KeyCode::Char('+') | KeyCode::Char('=') => if app.speed <= 100 { app.speed = app.speed.saturating_sub(10); } else { app.speed = app.speed.saturating_sub(100); },
-                        KeyCode::Char('-') | KeyCode::Char('_') => if app.speed < 100 { app.speed = app.speed.saturating_add(10).min(2000); } else { app.speed = app.speed.saturating_add(100).min(2000); },
-                        KeyCode::Char('?') => app.state = TournamentState::Settings,
-                        KeyCode::Esc => if app.games_played >= app.total_games { app.finish_tournament(); app.view_results(); }
-                        _ => {}
-                    },
+                            KeyCode::Left | KeyCode::Char('h') => {
+                                app.replay_prev_move();
+                                if app.replay_move_index < app.moves_scroll {
+                                    app.moves_scroll = app.replay_move_index;
+                                }
+                            }
+                            KeyCode::Char(' ') => app.view_results(),
+                            _ => {}
+                        },
+                        _ => match key.code {
+                            KeyCode::Char('q') => { app.quit(); break; }
+                            KeyCode::Char(' ') => {
+                                if app.game_mode == GameMode::EngineVsEngine {
+                                    app.toggle_pause();
+                                } else {
+                                    app.handle_select();
+                                }
+                            }
+                            KeyCode::Enter => app.handle_select(),
+                            KeyCode::Up | KeyCode::Char('k') => app.move_cursor(0, 1),
+                            KeyCode::Down | KeyCode::Char('j') => app.move_cursor(0, -1),
+                            KeyCode::Left | KeyCode::Char('h') => app.move_cursor(-1, 0),
+                            KeyCode::Right | KeyCode::Char('l') => app.move_cursor(1, 0),
+                            KeyCode::Char('r') => app.reset(),
+                            KeyCode::Char('+') | KeyCode::Char('=') => if app.speed <= 100 { app.speed = app.speed.saturating_sub(10); } else { app.speed = app.speed.saturating_sub(100); },
+                            KeyCode::Char('-') | KeyCode::Char('_') => if app.speed < 100 { app.speed = app.speed.saturating_add(10).min(2000); } else { app.speed = app.speed.saturating_add(100).min(2000); },
+                            KeyCode::Char('?') => app.state = TournamentState::Settings,
+                            KeyCode::Esc => if app.games_played >= app.total_games { app.finish_tournament(); app.view_results(); }
+                            KeyCode::PageUp => {
+                                if app.moves_scroll > 0 {
+                                    app.moves_scroll = app.moves_scroll.saturating_sub(5);
+                                }
+                            }
+                            KeyCode::PageDown => {
+                                app.moves_scroll = app.moves_scroll.saturating_add(5);
+                            }
+                            _ => {}
+                        },
                 }
             }
         }

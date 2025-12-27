@@ -76,6 +76,7 @@ fn draw_move_list(f: &mut Frame, app: &TournamentApp, area: ratatui::layout::Rec
             .borders(Borders::ALL)
             .title(title)
             .border_style(Style::default().fg(Color::DarkGray)))
+        .scroll((app.moves_scroll as u16, 0))
         .wrap(Wrap { trim: false });
 
     f.render_widget(moves_paragraph, area);

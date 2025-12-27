@@ -169,6 +169,7 @@ fn draw_game_list(f: &mut Frame, app: &TournamentApp, area: Rect) {
             .borders(Borders::ALL)
             .title(" Game History ")
             .border_style(Style::default().fg(Color::DarkGray)))
+        .scroll((app.history_scroll as u16, 0))
         .wrap(Wrap { trim: false });
 
     f.render_widget(list, area);

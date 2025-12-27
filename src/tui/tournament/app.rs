@@ -56,6 +56,8 @@ pub struct TournamentApp {
     pub selected_square: Option<usize>,
     pub file_path: String,
     pub legal_moves: Vec<crate::movegen::Move>,
+    pub history_scroll: usize,
+    pub moves_scroll: usize,
 }
 
 impl TournamentApp {
@@ -94,6 +96,8 @@ impl TournamentApp {
             selected_square: None,
             file_path: String::new(),
             legal_moves,
+            history_scroll: 0,
+            moves_scroll: 0,
         }
     }
 
@@ -168,6 +172,7 @@ impl TournamentApp {
         self.current_game_moves.clear();
         self.board = Board::build(None);
         self.game_result = "In Progress".to_string();
+        self.moves_scroll = 0;
         self.update_legal_moves();
     }
 
@@ -243,6 +248,7 @@ impl TournamentApp {
             self.selected_game = game_index;
             self.replay_move_index = 0;
             self.replay_board = Board::build(None);
+            self.moves_scroll = 0;
             self.state = TournamentState::ReplayGame;
         }
     }
