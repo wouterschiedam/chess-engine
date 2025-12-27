@@ -133,9 +133,14 @@ impl TournamentApp {
                 crate::board::types::SQUARE_NAME[self.cursor_pos]);
             
             if let Some(mv) = self.parse_move_str(&self.board, &move_str) {
+                if self.state == TournamentState::Stopped || self.state == TournamentState::Paused {
+                    self.state = TournamentState::Running;
+                    self.game_result = "In Progress".to_string();
+                }
                 self.board.make_move(&mv);
                 self.current_game_moves.push(move_str);
                 self.selected_square = None;
+                self.update_legal_moves();
                 
                 // If PvE, trigger engine move (not implemented here, but handled in loop)
             } else {
@@ -269,7 +274,7 @@ impl TournamentApp {
         }
     }
 
-    fn parse_move_str(&self, board: &Board, move_str: &str) -> Option<crate::movegen::Move> {
+    pub fn parse_move_str(&self, board: &Board, move_str: &str) -> Option<crate::movegen::Move> {
         use crate::movegen::generate_legal_moves;
         use crate::utils::display::format_move;
         let legal_moves = generate_legal_moves(board);

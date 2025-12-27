@@ -4,7 +4,9 @@
 mod board;
 mod cli;
 mod defs;
+mod eval;
 mod movegen;
+mod search;
 mod tui;
 mod uci;
 mod utils;
@@ -55,7 +57,7 @@ fn main() {
         }
 
         None => {
-            Cli::command().print_help().expect("Failed to print help");
+            uci::run_uci();
         }
     }
 }

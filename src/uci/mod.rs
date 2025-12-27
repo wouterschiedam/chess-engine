@@ -7,6 +7,7 @@ use crate::board::types::{Pieces, SQUARE_NAME};
 use crate::defs::{self, About, Sides};
 use crate::movegen::movegen::generate_legal_moves;
 use crate::movegen::moves::Move;
+use crate::search::search::{self, Search};
 use crate::uci::protocol::UciCommand;
 use crate::utils::format_move;
 use std::io::{self, BufRead, Write};
@@ -16,7 +17,7 @@ mod protocol;
 /// UCI engine state
 pub struct UciEngine {
     board: Board,
-    search_depth: u32,
+    search_depth: u8,
     hash_size: usize,
     should_stop: bool,
 }
@@ -45,9 +46,7 @@ impl UciEngine {
                         self.handle_command(&mut stdout_lock, command);
                     }
                 }
-                Err(e) => {
-                    eprintln!("Error reading input: {}", e);
-                }
+                Err(_) => break,
             }
         }
     }
@@ -101,13 +100,10 @@ impl UciEngine {
                 if let Some(v) = value {
                     if let Ok(size) = v.parse::<usize>() {
                         self.hash_size = size;
-                        eprintln!("Hash size set to {} MB", size);
                     }
                 }
             }
-            _ => {
-                eprintln!("Setting option: {} (not implemented)", name);
-            }
+            _ => {}
         }
         output.flush().ok();
     }
@@ -124,7 +120,6 @@ impl UciEngine {
         for move_str in moves {
             // Extract source square (first 2 characters)
             if move_str.len() < 4 {
-                eprintln!("Invalid move: {}", move_str);
                 continue;
             }
 
@@ -132,7 +127,6 @@ impl UciEngine {
             let from_square = match algebraic_from_str(from_square_str) {
                 Some(sq) => sq,
                 None => {
-                    eprintln!("Invalid move (source): {}", move_str);
                     continue;
                 }
             };
@@ -142,7 +136,6 @@ impl UciEngine {
             let to_square = match algebraic_from_str(to_square_str) {
                 Some(sq) => sq,
                 None => {
-                    eprintln!("Invalid move (destination): {}", move_str);
                     continue;
                 }
             };
@@ -176,8 +169,6 @@ impl UciEngine {
 
             let _ = self.board.make_move(&chess_move);
         }
-
-        eprintln!("Position set with {} moves", moves.len());
     }
 
     fn cmd_go(&mut self, output: &mut impl Write, params: GoParams) {
@@ -185,111 +176,21 @@ impl UciEngine {
         self.should_stop = false;
 
         // Determine search depth from params
-        let depth = params.depth.unwrap_or(self.search_depth);
+        let depth = params.depth.unwrap_or(self.search_depth as u32) as u8;
 
         // Generate all legal moves for the current position
-        let legal_moves = generate_legal_moves(&self.board);
-
-        // Output search info
-        writeln!(output, "info depth {} nodes {}", depth, legal_moves.len()).ok();
-
-        // Check for game over
-        if legal_moves.is_empty() {
-            if self.board.is_in_check(self.board.gamestate.active_side) {
-                writeln!(output, "info score mate 0").ok();
-                writeln!(output, "bestmove (none)").ok();
-            } else {
-                writeln!(output, "info score cp 0").ok();
-                writeln!(output, "bestmove (none)").ok();
-            }
-            output.flush().ok();
-            return;
-        }
-
-        // Simple material evaluation for move ordering
-        let piece_values = [
-            Pieces::PAWN,    // 1
-            Pieces::KNIGHT,  // 2
-            Pieces::BISHOP,  // 3
-            Pieces::ROOK,    // 4
-            Pieces::QUEEN,   // 5
-            Pieces::KING,    // 6
-        ];
-
-        let mut scored_moves: Vec<(i32, &Move)> = legal_moves
-            .iter()
-            .map(|mv| {
-                let mut score = fastrand::i32(0..100); // Random base for variety
-
-                // Prioritize captures
-                if mv.capture.is_some() {
-                    score += 100;
-                    // MVV-LVA: capture more valuable pieces with less valuable ones
-                    if let Some(captured) = mv.capture {
-                        let victim_value = piece_values.iter().position(|&p| p == captured).unwrap_or(0);
-                        let attacker_value = piece_values.iter().position(|&p| p == mv.piece).unwrap_or(0);
-                        score += (victim_value as i32 - attacker_value as i32) * 10;
-                    }
-                }
-
-                // Prioritize promotions to queen
-                if mv.promotion == Some(Pieces::QUEEN) {
-                    score += 200;
-                }
-
-                // Prioritize checks
-                let mut test_board = self.board.clone();
-                let _ = test_board.make_move(mv);
-                let enemy_side = 1 - test_board.gamestate.active_side;
-                let enemy_king_bb = test_board.bb_pieces[enemy_side][Pieces::KING];
-                if enemy_king_bb != 0 {
-                    let enemy_king_pos = enemy_king_bb.trailing_zeros() as usize;
-                    if test_board.is_square_attacked(enemy_king_pos, test_board.gamestate.active_side) {
-                        score += 50;
-                    }
-                }
-
-                (score, mv)
-            })
-            .collect();
-
-        // Sort by score (highest first)
-        scored_moves.sort_by(|a, b| b.0.cmp(&a.0));
-
-        // Select best move (highest score)
-        let chosen_move = scored_moves[0].1;
-
-        // Calculate simple evaluation score for info
-        let mut test_board = self.board.clone();
-        let _ = test_board.make_move(chosen_move);
-
-        // Simple material count
-        let side = 1 - test_board.gamestate.active_side;
-        let mut score = 0;
-        let piece_material = [100, 320, 330, 500, 900, 20000];
-
-        for piece in 0..6 {
-            let white_count = test_board.bb_pieces[Sides::WHITE][piece].count_ones() as i32;
-            let black_count = test_board.bb_pieces[Sides::BLACK][piece].count_ones() as i32;
-            score += (white_count - black_count) * piece_material[piece];
-        }
-
-        if test_board.is_in_check(side) {
-            writeln!(output, "info depth {} score cp {} nodes {} pv {}", depth, score, legal_moves.len(), format_move(chosen_move)).ok();
+        if let Some(best_move) = Search::search(&mut self.board, depth) {
+            // Convert move to UCI format (e.g., "e2e4" or "e7e8q" for promotion)
+            let uci_move = format_move(&best_move);
+            writeln!(output, "bestmove {}", uci_move).ok();
         } else {
-            writeln!(output, "info depth {} score cp {} nodes {} pv {}", depth, score, legal_moves.len(), format_move(chosen_move)).ok();
+            writeln!(output, "bestmove (none)").ok();
         }
-
-        // Convert move to UCI format (e.g., "e2e4" or "e7e8q" for promotion)
-        let uci_move = format_move(chosen_move);
-
-        writeln!(output, "bestmove {}", uci_move).ok();
         output.flush().ok();
     }
 
     fn cmd_stop(&mut self) {
         self.should_stop = true;
-        eprintln!("Stop command received");
     }
 
     // ========== CUSTOM DEBUG COMMANDS ==========
@@ -328,7 +229,6 @@ impl UciEngine {
             "queen" => Pieces::QUEEN,
             "king" => Pieces::KING,
             _ => {
-                eprintln!("Unknown piece type: {}", piece_type);
                 writeln!(output, "info bitboard {} {} 0", piece_type, color).ok();
                 output.flush().ok();
                 return;
@@ -339,7 +239,6 @@ impl UciEngine {
             "white" => Sides::WHITE,
             "black" => Sides::BLACK,
             _ => {
-                eprintln!("Unknown color: {}", color);
                 writeln!(output, "info bitboard {} {} 0", piece_type, color).ok();
                 output.flush().ok();
                 return;
@@ -397,7 +296,6 @@ impl UciEngine {
 
     fn cmd_debug(&mut self, output: &mut impl Write, enable: bool) {
         // TODO: Implement debug mode
-        eprintln!("Debug mode: {}", enable);
         writeln!(output, "info debug {}", enable).ok();
         output.flush().ok();
     }

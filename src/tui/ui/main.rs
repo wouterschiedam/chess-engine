@@ -1,5 +1,6 @@
 use crate::tui::tournament::{TournamentApp, TournamentState};
 use crate::tui::tournament::{draw_board, draw_menu, draw_shortcuts};
+use crate::eval::evaluate;
 use ratatui::{
     Frame,
     layout::{Alignment, Constraint, Direction, Layout, Rect},
@@ -11,13 +12,17 @@ use ratatui::{
 pub fn draw(f: &mut Frame, app: &TournamentApp) {
     let main_chunks = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([Constraint::Fill(1), Constraint::Length(45)])
+        .constraints([
+            Constraint::Length(4), // Evaluation bar
+            Constraint::Fill(1),   // Board
+            Constraint::Length(45) // Right panel
+        ])
         .split(f.area());
 
     let left_chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Fill(1)])
-        .split(main_chunks[0]);
+        .split(main_chunks[1]);
 
     let right_chunks = Layout::default()
         .direction(Direction::Vertical)
@@ -27,8 +32,9 @@ pub fn draw(f: &mut Frame, app: &TournamentApp) {
             Constraint::Fill(1),   // Move list / Stats
             Constraint::Length(10), // Controls
         ])
-        .split(main_chunks[1]);
+        .split(main_chunks[2]);
 
+    draw_eval_bar(f, app, main_chunks[0]);
     draw_board(f, app, left_chunks[0]);
     draw_header(f, app, right_chunks[0]);
     draw_status(f, app, right_chunks[1]);
@@ -217,4 +223,57 @@ fn draw_status(f: &mut Frame, app: &TournamentApp, area: Rect) {
         .alignment(Alignment::Left);
 
     f.render_widget(status, area);
+}
+
+fn draw_eval_bar(f: &mut Frame, app: &TournamentApp, area: Rect) {
+    let board = if matches!(app.state, TournamentState::ReplayGame) {
+        &app.replay_board
+    } else {
+        &app.board
+    };
+
+    let score = evaluate(board);
+    // Convert to white's perspective
+    let white_score = if board.gamestate.active_side == 0 { score } else { -score };
+
+    // Scale: +/- 1000 centipawns is max
+    let max_display_score = 1000.0;
+    let normalized = (white_score as f32 / max_display_score).clamp(-1.0, 1.0);
+    
+    // Bar height (inner)
+    let total_height = area.height.saturating_sub(2);
+    if total_height == 0 { return; }
+
+    // White grows from bottom. 
+    // -1.0 (black winning) -> 0 white cells
+    // 0.0 (even) -> total_height / 2 white cells
+    // 1.0 (white winning) -> total_height white cells
+    let white_ratio = (normalized + 1.0) / 2.0;
+    let white_cells = (white_ratio * total_height as f32).round() as u16;
+    let black_cells = total_height - white_cells;
+
+    let mut lines = Vec::new();
+    // Black at top
+    for _ in 0..black_cells {
+        lines.push(Line::from(Span::styled("█", Style::default().fg(Color::Rgb(50, 50, 50)))));
+    }
+    // White at bottom
+    for _ in 0..white_cells {
+        lines.push(Line::from(Span::styled("█", Style::default().fg(Color::White))));
+    }
+
+    let score_str = if white_score.abs() > 10000 {
+        "M".to_string() 
+    } else {
+        format!(" {:.1} ", white_score as f32 / 100.0)
+    };
+
+    let eval_para = Paragraph::new(lines)
+        .block(Block::default()
+            .borders(Borders::ALL)
+            .title(score_str)
+            .border_style(Style::default().fg(Color::DarkGray)))
+        .alignment(Alignment::Center);
+
+    f.render_widget(eval_para, area);
 }

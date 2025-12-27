@@ -152,13 +152,99 @@ impl Board {
         (self.get_enemy_pieces(side) & (1u64 << square)) == 0
     }
 
+    pub fn to_fen(&self) -> String {
+        let mut fen = String::new();
+
+        // 1. Piece positions
+        for rank in (0..8).rev() {
+            let mut empty_count = 0;
+            for file in 0..8 {
+                let square = rank * 8 + file;
+                let piece = self.piece_list[square];
+                
+                let mut side = 2; // None
+                for s in 0..2 {
+                    if (self.bb_side[s] >> square) & 1 == 1 {
+                        side = s;
+                        break;
+                    }
+                }
+
+                if side == 2 {
+                    empty_count += 1;
+                } else {
+                    if empty_count > 0 {
+                        fen.push_str(&empty_count.to_string());
+                        empty_count = 0;
+                    }
+                    let mut c = match piece {
+                        Pieces::PAWN => 'p',
+                        Pieces::KNIGHT => 'n',
+                        Pieces::BISHOP => 'b',
+                        Pieces::ROOK => 'r',
+                        Pieces::QUEEN => 'q',
+                        Pieces::KING => 'k',
+                        _ => '?',
+                    };
+                    if side == Sides::WHITE {
+                        c = c.to_ascii_uppercase();
+                    }
+                    fen.push(c);
+                }
+            }
+            if empty_count > 0 {
+                fen.push_str(&empty_count.to_string());
+            }
+            if rank > 0 {
+                fen.push('/');
+            }
+        }
+
+        fen.push(' ');
+
+        // 2. Active side
+        fen.push(if self.gamestate.active_side == Sides::WHITE { 'w' } else { 'b' });
+        fen.push(' ');
+
+        // 3. Castling rights
+        let mut castling = String::new();
+        if self.gamestate.castling & Castling::WK != 0 { castling.push('K'); }
+        if self.gamestate.castling & Castling::WQ != 0 { castling.push('Q'); }
+        if self.gamestate.castling & Castling::BK != 0 { castling.push('k'); }
+        if self.gamestate.castling & Castling::BQ != 0 { castling.push('q'); }
+        if castling.is_empty() { castling.push('-'); }
+        fen.push_str(&castling);
+        fen.push(' ');
+
+        // 4. En passant square
+        if let Some(ep) = self.gamestate.enpassant {
+            if ep > 0 {
+                fen.push_str(SQUARE_NAME[ep as usize]);
+            } else {
+                fen.push('-');
+            }
+        } else {
+            fen.push('-');
+        }
+        fen.push(' ');
+
+        // 5. Halfmove clock
+        fen.push_str(&self.gamestate.halfclockmove.to_string());
+        fen.push(' ');
+
+        // 6. Fullmove number
+        fen.push_str(&self.gamestate.fullmovenumber.to_string());
+
+        fen
+    }
+
     pub fn get_piece_on_square(&self, square: Square) -> Piece {
         self.piece_list[square]
     }
 
     pub fn get_status(&self) -> crate::defs::GameStatus {
         use crate::movegen::generate_legal_moves;
-        
+
         if self.gamestate.halfclockmove >= 100 {
             return crate::defs::GameStatus::DrawByFiftyMove;
         }
@@ -965,6 +1051,21 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn test_to_fen_starting_pos() {
+        let board = Board::build(None);
+        assert_eq!(board.to_fen(), FEN_START_POSITION);
+    }
+
+    #[test]
+    fn test_to_fen_kiwipete() {
+        let board = Board::build(Some(FEN_KIWIPETE_POSITION));
+        // Note: Kiwipete FEN usually has some moves/clocks at the end
+        // but our Board::build might not preserve all of them if they are not 0/1.
+        // Actually it should.
+        assert_eq!(board.to_fen(), FEN_KIWIPETE_POSITION);
     }
 
     #[test]
